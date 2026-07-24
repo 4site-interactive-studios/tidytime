@@ -10,3 +10,4 @@ next phase. Paired with a planning-doc update so the phase docs stay honest.
 - [Phase 3 — Meetings & calendar](phase-3.md)
 - [Phase 4 — Slack](phase-4.md)
 - [Phase 5 — Recap & rules](phase-5.md)
+- [Phase 6 — Intelligence](phase-6.md)

@@ -16,6 +16,22 @@ and the dashboard's AI-overhead panel. Implements [PLAN §11 Phase 6](../../PLAN
 
 ---
 
+
+## Status: as built (2026-07-24)
+
+> ✅ **Logic complete + unit-tested** (117 tests total). Shipped: `v1-ai` migration + records/DAOs,
+> the metered `AIRouter` (gate → route → budget → outbound → call → ledger; G2 + G5),
+> `BudgetPolicy`, `ModelCost`, `OutboundPayloadRecorder`, Fireworks/Anthropic providers, the Apple
+> on-device provider wired to the **real Foundation Models API** (runtime-gated), `NoteDrafter`,
+> `NudgeEngine`, and the AI-overhead `DashboardBuilder` + CSV. Full write-up:
+> [../retrospectives/phase-6.md](../retrospectives/phase-6.md).
+>
+> ⚠️ **Deferred/thin (flagged):** end-to-end transcript-split → `meeting_segment` suggestions,
+> on-device `@Generable` guided generation, and calibration sampling are scaffolded but not fully
+> wired. Live cloud/on-device calls need keys + macOS 26 Apple Intelligence; the router/gate/budget/
+> ledger/parsing are fully tested with fakes/fixtures. The Anthropic structured-output request shape
+> is a build-time check.
+
 **Ships:** the on-device rung (3), the cloud rungs (4–5), the gate, the router, the ledger, nudges,
 and the dashboard. · **Prereq:** Phases 0–5 complete (capture, mirror, meetings, Slack, recap +
 rungs 1–2). · **Targets touched:** `TidyUnderstand`, `TidyAI`, `TidySuggest`, `TidySurface`,
