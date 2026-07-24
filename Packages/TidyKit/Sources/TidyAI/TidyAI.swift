@@ -106,10 +106,15 @@ public struct AIRouter: Sendable {
         self.models = config.ai.models
         self.providers = Dictionary(providers.map { ($0.providerName, $0) }, uniquingKeysWith: { a, _ in a })
         self.outbound = outbound
+        // Budget "day" = the user's LOCAL calendar day, matching the recap/gap-analysis day
+        // boundary (data-model.md "Days" convention) — not UTC. The app can inject a config-tz
+        // variant; the default uses the current zone so the cap resets at local midnight.
         self.dayBounds = dayBounds ?? { now in
-            let t = Int64(now.timeIntervalSince1970)
-            let start = t - (t % 86_400)
-            return (start, start + 86_400)
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone.current
+            let start = cal.startOfDay(for: now)
+            let end = cal.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+            return (Int64(start.timeIntervalSince1970), Int64(end.timeIntervalSince1970))
         }
     }
 

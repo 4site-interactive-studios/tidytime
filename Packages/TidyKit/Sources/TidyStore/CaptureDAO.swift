@@ -102,11 +102,22 @@ public struct RetentionJob: Sendable {
             let existing = Set(try String.fetchAll(database, sql:
                 "SELECT name FROM sqlite_master WHERE type='table'"))
             for (table, days) in retentionDays {
-                guard let column = Self.timestampColumns[table], existing.contains(table) else { continue }
                 let cutoff = Int64(now.timeIntervalSince1970) - Int64(days) * 86_400
-                try database.execute(
-                    sql: "DELETE FROM \"\(table)\" WHERE \"\(column)\" < ?", arguments: [cutoff])
-                deleted[table] = database.changesCount
+                if let column = Self.timestampColumns[table], existing.contains(table) {
+                    try database.execute(
+                        sql: "DELETE FROM \"\(table)\" WHERE \"\(column)\" < ?", arguments: [cutoff])
+                    deleted[table] = database.changesCount
+                } else if table == "transcript_utterances",
+                          existing.contains("transcript_utterances"), existing.contains("meetings") {
+                    // transcript_utterances has no absolute timestamp of its own (only start_seconds
+                    // offsets), so purge via the parent meeting's recording/fetch time. The meetings
+                    // summary row is KEPT (data-model.md); only the raw utterances age out (G9).
+                    try database.execute(sql: """
+                        DELETE FROM transcript_utterances WHERE meeting_id IN
+                            (SELECT id FROM meetings WHERE COALESCE(recording_start, fetched_at) < ?)
+                        """, arguments: [cutoff])
+                    deleted[table] = database.changesCount
+                }
             }
         }
         return deleted

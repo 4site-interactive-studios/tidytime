@@ -32,13 +32,14 @@ public struct Classification: Sendable, Equatable {
     public var confidence: Double
     public var rung: Int
     public var rationale: String
-    /// The signal value that produced a rung-1 match (used to strengthen the learned rule).
+    /// The signal (type + value) that produced a rung-1 match, used to strengthen the RIGHT rule.
+    public var matchedSignalType: String?
     public var matchedSignalValue: String?
     public init(clientId: String, projectId: String? = nil, taskId: String? = nil, confidence: Double,
-                rung: Int, rationale: String, matchedSignalValue: String? = nil) {
+                rung: Int, rationale: String, matchedSignalType: String? = nil, matchedSignalValue: String? = nil) {
         self.clientId = clientId; self.projectId = projectId; self.taskId = taskId
         self.confidence = confidence; self.rung = rung; self.rationale = rationale
-        self.matchedSignalValue = matchedSignalValue
+        self.matchedSignalType = matchedSignalType; self.matchedSignalValue = matchedSignalValue
     }
 }
 
@@ -113,7 +114,8 @@ public struct Classifier: Sendable {
         return Classification(
             clientId: sig.clientId!, projectId: sig.projectId, taskId: nil,
             confidence: sig.isAuthoritative ? 0.97 : 0.85, rung: 1,
-            rationale: "matched \(sig.signalType) '\(best.0)'", matchedSignalValue: best.0)
+            rationale: "matched \(sig.signalType) '\(best.0)'",
+            matchedSignalType: sig.signalType, matchedSignalValue: best.0)
     }
 
     // Rung 2 — lexical matching against the Productive cache.

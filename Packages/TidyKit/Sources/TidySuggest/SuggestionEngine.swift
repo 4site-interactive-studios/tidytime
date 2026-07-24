@@ -76,15 +76,20 @@ public struct SuggestionEngine: Sendable {
         for (_, g) in groups {
             let rawMinutes = g.seconds / 60
             if rawMinutes >= standaloneThresholdMinutes {
-                let (minutes, roundedUp) = rounding.rounded(seconds: g.seconds)
-                // Gap analysis: for a known task, only suggest what's not already logged.
-                var suggestMinutes = minutes
+                // Gap analysis: for a known task, subtract already-logged time from the RAW seconds
+                // BEFORE rounding, so the remainder is still a clean 15-min increment (not e.g. 35m).
+                var effectiveSeconds = g.seconds
                 var rationaleExtra = ""
                 if let taskId = g.taskId, let logged = loggedByTask[taskId], logged > 0 {
-                    suggestMinutes = max(0, minutes - logged)
+                    effectiveSeconds = g.seconds - logged * 60
                     rationaleExtra = " (you logged \(logged)m; suggesting the remainder)"
-                    if suggestMinutes == 0 { summary.skippedAlreadyLogged += 1; continue }
+                    // A remainder below the threshold means the task is substantially logged already —
+                    // skip rather than round a tiny remainder up to a full increment (over-counting).
+                    if effectiveSeconds < standaloneThresholdMinutes * 60 {
+                        summary.skippedAlreadyLogged += 1; continue
+                    }
                 }
+                let (suggestMinutes, roundedUp) = rounding.rounded(seconds: effectiveSeconds)
                 let kind: String
                 if g.taskId != nil { kind = g.isMeeting ? "meeting_segment" : "session" }
                 else { kind = "new_task"; summary.newTaskProposals += 1 }

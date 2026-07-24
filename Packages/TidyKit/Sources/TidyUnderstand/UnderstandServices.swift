@@ -35,9 +35,10 @@ public struct DayClassifier: Sendable {
             if let c = classifier.classify(s, invitees: invitees) {
                 try db.classifySession(id: id, clientId: c.clientId, projectId: c.projectId, taskId: c.taskId,
                                        confidence: c.confidence, rung: c.rung, rationale: c.rationale, classifiedAt: now)
-                if let v = c.matchedSignalValue {
-                    // Re-touch the rule so confirmed patterns rise in weight over time.
-                    try? db.strengthenSignal(type: "url_host", value: v, clientId: c.clientId,
+                if let v = c.matchedSignalValue, let t = c.matchedSignalType {
+                    // Re-touch the SAME signal that fired (not a hardcoded url_host) so the right
+                    // rule rises in weight — strengthening a bogus type would pollute entity_signals.
+                    try? db.strengthenSignal(type: t, value: v, clientId: c.clientId,
                                              projectId: c.projectId, provenance: "inferred", now: now)
                 }
                 classified += 1
@@ -115,8 +116,22 @@ public struct ResolutionQuestionGenerator: Sendable {
 /// The sensitivity gate (guardrail G2). Fails closed: any configured term found → sensitive, and
 /// the content must NOT be sent to a cloud model. Runs before rungs 3–4 and note generation.
 public struct SensitivityGate: Sendable {
+    /// Hardcoded floor of always-on sensitive terms (lowercased). Guarantees the gate is NEVER a
+    /// no-op even with an empty/partial config or a user-cleared list (guardrails.md: "an empty list
+    /// never disables the gate"). Config terms are added ON TOP of this floor. Over-caution is the
+    /// safe failure direction (a bland generic note costs one manual edit; the opposite leaks).
+    public static let floorTerms: [String] = [
+        "salary", "compensation", "raise", "bonus", "pip", "performance review", "performance plan",
+        "termination", "fired", "layoff", "severance", "offer letter", "lawsuit", "settlement",
+        "legal counsel", "confidential", "hr complaint", "disciplinary", "grievance",
+    ]
+
     public let terms: [String]
-    public init(terms: [String]) { self.terms = terms.map { $0.lowercased() }.filter { !$0.isEmpty } }
+    public init(terms: [String], includeFloor: Bool = true) {
+        var all = terms.map { $0.lowercased() }.filter { !$0.isEmpty }
+        if includeFloor { all.append(contentsOf: Self.floorTerms) }
+        self.terms = Array(Set(all))
+    }
     public init(config: Config) { self.init(terms: config.sensitivity.allTerms) }
 
     public func isSensitive(_ text: String) -> Bool {

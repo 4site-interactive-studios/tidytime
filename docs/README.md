@@ -77,7 +77,8 @@ Index: [decisions/README.md](decisions/README.md).
 | [permissions-setup.md](permissions-setup.md) | The one-time human setup checklist |
 | [glossary.md](glossary.md) | Domain terms (Productive, EN/ENgrid, Fathom, session, pool, rung…) |
 | [open-items.md](open-items.md) | Unresolved questions to settle during the build |
-| [retrospectives/](retrospectives/README.md) | Per-phase retrospectives (what actually shipped) |
+| [retrospectives/](retrospectives/README.md) | Per-phase + project retrospectives (what actually shipped) |
+| [PROJECT-REVIEW.md](PROJECT-REVIEW.md) | Independent 3-agent review + fix dispositions |
 | [../DECISIONS.md](../DECISIONS.md) | Running decision & learning log (read before working) |
 
 ---

@@ -100,9 +100,12 @@ describes.
   groups by and that entity resolution (Phase 5) will map to clients.
 - **Sessionizer:** builds runs of one context, **absorbing a brief detour** only when it is shorter
   than `detour_tolerance_seconds` AND bounded by the same context on both sides (a real "glance
-  away and come back"). Runs shorter than `min_session_seconds` are **dropped** — that sub-threshold
-  time is recovered later as micro-work pools (Phase 5), not lost to a session row. `primaryApp` is
-  the app with the most in-run duration. Deterministic; no clock dependency in the core.
+  away and come back"). Runs shorter than `min_session_seconds` (default 60s) are **dropped as
+  noise** — and, to be precise (a review corrected an earlier over-claim here): these sub-60s
+  fragments are **NOT** recovered by pooling. Micro-work pooling (Phase 5) operates on sessions that
+  *survive* the 60s floor but fall under the 15-min standalone threshold; genuinely tiny screen
+  flickers are intentionally discarded. `primaryApp` is the app with the most in-run duration.
+  Deterministic; no clock dependency in the core.
 
 ### 2026-07-23 · Retention semantics
 - **`RetentionJob.purge`** deletes rows **strictly older** than the window (`ts < now - days*86400`).
@@ -281,6 +284,27 @@ describes.
 - `NudgeEngine` is a pure decision (meeting-aware, quiet-hours wrap, daily cap, sustained-block,
   already-logged, dismissal-backoff that raises the confidence bar then mutes). Dashboard aggregates
   `ai_calls` (spend by job/provider, escalation rate, on-device share) + CSV export.
+
+---
+
+## Project-wide review (2026-07-24)
+
+Three independent reviewers (correctness / coverage / plan-adherence) audited the finished
+codebase — all returned `pass_with_concerns`. Full write-up + dispositions:
+[docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md). Two were **real guardrail gaps** that were
+configured/documented but not enforced, now fixed **with regression tests**:
+- **G9:** `transcript_utterances` was never actually purged (no absolute timestamp column) — now
+  purged via the parent meeting's `recording_start`/`fetched_at`.
+- **G2:** the `SensitivityGate` failed **open** on an empty term list — now unions config terms with
+  a hardcoded `floorTerms` floor, so a default/empty config still blocks sensitive content.
+
+**Lesson for future workers:** "configured" ≠ "enforced." Both gaps had a config entry and a doc
+promise but no test — so they silently did nothing. If a guarantee matters, write the test that
+fails when it's broken. Other fixes: gap-analysis remainder stays on a 15-min increment (subtract
+before rounding; sub-threshold remainder skips); the learning loop strengthens the **actual**
+matched signal type (not a hardcoded `url_host`); the AI budget window is the **local** day; added a
+G3 `CGWindowList` lint test and coverage for the Anthropic provider, `meeting_segment`, Fireworks
+structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 130 tests, all passing.
 
 ---
 
