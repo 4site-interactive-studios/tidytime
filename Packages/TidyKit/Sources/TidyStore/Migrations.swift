@@ -12,6 +12,7 @@ public enum Migrations {
         var m = DatabaseMigrator()
         registerV1Core(&m)
         registerV1Capture(&m)
+        registerV1Productive(&m)
         return m
     }
 
@@ -94,6 +95,62 @@ public enum Migrations {
                 t.column("last_run_at", .integer)
                 t.column("last_success_at", .integer)
                 t.column("last_error", .text)
+            }
+        }
+    }
+
+    private static func registerV1Productive(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v1-productive") { db in
+            try db.create(table: "pd_companies") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("company_type", .text)
+                t.column("domain", .text)
+                t.column("archived", .integer).notNull().defaults(to: 0)
+                t.column("synced_at", .integer).notNull()
+            }
+            try db.create(table: "pd_projects") { t in
+                t.primaryKey("id", .text)
+                t.column("company_id", .text).notNull().indexed()
+                t.column("name", .text).notNull()
+                t.column("project_type_id", .integer)
+                t.column("project_number", .text)
+                t.column("archived", .integer).notNull().defaults(to: 0)
+                t.column("synced_at", .integer).notNull()
+            }
+            try db.create(table: "pd_tasks") { t in
+                t.primaryKey("id", .text)
+                t.column("project_id", .text).notNull().indexed()
+                t.column("task_list_id", .text)
+                t.column("title", .text).notNull()
+                t.column("description", .text)
+                t.column("task_number", .integer)
+                t.column("status", .text)
+                t.column("closed", .integer).notNull().defaults(to: 0)
+                t.column("assignee_id", .text).indexed()
+                t.column("due_date", .text)
+                t.column("synced_at", .integer).notNull()
+            }
+            try db.create(table: "pd_time_entries") { t in
+                t.primaryKey("id", .text)
+                t.column("person_id", .text).notNull()
+                t.column("task_id", .text)
+                t.column("project_id", .text)
+                t.column("service_id", .text)
+                t.column("date", .text).notNull()
+                t.column("time_minutes", .integer).notNull()
+                t.column("billable_minutes", .integer)
+                t.column("note", .text)
+                t.column("synced_at", .integer).notNull()
+                // NOT unique on (person_id, date): a person logs many entries per day.
+            }
+            try db.create(indexOn: "pd_time_entries", columns: ["person_id", "date"])
+            try db.create(table: "pd_people") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("email", .text)
+                t.column("is_self", .integer).notNull().defaults(to: 0)
+                t.column("synced_at", .integer).notNull()
             }
         }
     }

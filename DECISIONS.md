@@ -130,3 +130,41 @@ describes.
   non-Sendable `() -> Void` helper closure inside them errors ("sending 'action' risks data races").
   Fix: inline each observer and capture only `[weak self]` (a `@MainActor` class is Sendable), then
   `MainActor.assumeIsolated { ... }` inside. Applied in `PowerObserver`.
+
+---
+
+## Phase 2 — Productive mirror (read-only)
+
+### 2026-07-23 · Reusable ingest HTTP layer (used by Phases 2–4)
+- `HTTPClient` protocol with `URLSessionHTTPClient` (live) and `FakeHTTPClient` (queued responses,
+  records requests). `Backoff` (exponential + cap, honors `Retry-After`). The live client retries
+  on **429** with an **injected `sleeper`** closure — tests pass `{ _ in }` so no real time passes.
+  This is the pattern every API client reuses; don't hand-roll another.
+
+### 2026-07-23 · JSON:API decoding — again, no `convertFromSnakeCase`
+- `JSONAPIDocument`/`JSONAPIResource` decode with explicit `CodingKeys` on the attribute structs.
+  `.convertFromSnakeCase` would mangle the **relationships dictionary keys** (`task_list` →
+  `taskList`), breaking `relationshipId("task_list")`. Relationship `data` is a `.one`/`.many` enum
+  that tries single-object then array. Same lesson as Config — do not switch to the strategy.
+
+### 2026-07-23 · G1 (read-only Productive) enforced structurally + by test
+- `ProductiveRequestBuilder.build(method:)` **throws `IngestError.readOnlyViolation` for any method
+  other than GET**, and there is no public non-GET entry point (`get(...)` is the only public one;
+  the `ProductiveClient` protocol has only `fetch*` methods). `ProductiveGuardrailTests` asserts
+  POST/PATCH/PUT/DELETE all throw. A future write client (v2) must be a **separate type**, never a
+  method added here.
+
+### 2026-07-23 · Productive attribute/filter names are build-time checks
+- Exact attribute names (`company_type_id`, `time`, `billable_time`) and filter keys
+  (`filter[person_id]`, `filter[after]`, `filter[before]`, `filter[assignee_id]`) are what
+  docs/reference/productive-api.md flagged as ⚠️ build-time checks. Test **fixtures reflect the
+  documented shape**; the parser is tolerant (optionals). Confirm against the live API at
+  integration and adjust `*Attrs`/query keys if they differ — the mapping is isolated in
+  `ProductiveClient.swift`.
+
+### 2026-07-23 · Misc
+- `pd_time_entries` is **not** unique on `(person_id, date)` — a person logs many entries per day.
+  Just an index for gap-analysis lookups.
+- `NSLock.lock()/unlock()` are **unavailable from async contexts** in Swift 6; use
+  `lock.withLock { }` inside `async` functions (applied in `FakeHTTPClient.send`).
+- `resolveSelf(email:)` is case-insensitive and clears any prior `is_self` before setting the match.
