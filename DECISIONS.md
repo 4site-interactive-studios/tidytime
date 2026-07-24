@@ -379,6 +379,20 @@ structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 13
   same on any page); the *title/page-text* (rung 2) is what disambiguates which project within a tool
   like Claude. The `context_switches` metric remains independent (raw samples, finest granularity).
 
+### Separate distinct chats within the same title (2026-07-24)
+- **Want:** two Claude chats that share a title (e.g. both "New chat") should be distinct sessions.
+- **How:** `ContextKey.grouping` now folds the browser **URL path** into the fine grouping key when
+  `capture.separate_chats_by_path` is on (default true). The path carries the chat/doc id
+  (`claude.ai/chat/<id>`), so same-title-different-chat → distinct sessions. **Query + fragment are
+  dropped**, so per-*message* churn (`?msg=…`, `#anchor`) does NOT re-fragment (avoids the
+  per-message explosion). The **coarse `context_key` is unchanged** (`web:host`), so rules and
+  ask-once still key on the host and converge — exactly the two-altitude split from the prior entry.
+- **Limits (documented):** native apps have no URL, so two same-title native chats still merge (needs
+  app-specific AX). Path inclusion also separates a client site by page — harmless for attribution
+  (same coarse host rule), absorbed by detour/pool/floor for density; toggle off for title-only.
+- Tested: `FinerAttributionTests` (path split, query/fragment merge, toggle off, native merge, +
+  a SessionBuildJob split). 147 → 152 tests.
+
 ---
 
 ## Phase 4 — Slack

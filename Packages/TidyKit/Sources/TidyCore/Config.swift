@@ -173,15 +173,19 @@ public struct Config: Codable, Sendable, Equatable {
         public var contentIntervalSeconds: Double
         public var idleThresholdSeconds: Int
         public var pageTextMaxBytes: Int
+        /// Fold the browser URL path into the session grouping key, so distinct chats/docs that share
+        /// a title become separate sessions. Off → group by title only (fewer, coarser sessions).
+        public var separateChatsByPath: Bool
         public var killSwitches: KillSwitches
         public init(browser: String = "chrome", heartbeatSeconds: Int = 30,
                     detectionIntervalSeconds: Double = 1.0, contentIntervalSeconds: Double = 20.0,
                     idleThresholdSeconds: Int = 600, pageTextMaxBytes: Int = 4096,
-                    killSwitches: KillSwitches = .init()) {
+                    separateChatsByPath: Bool = true, killSwitches: KillSwitches = .init()) {
             self.browser = browser; self.heartbeatSeconds = heartbeatSeconds
             self.detectionIntervalSeconds = detectionIntervalSeconds
             self.contentIntervalSeconds = contentIntervalSeconds
             self.idleThresholdSeconds = idleThresholdSeconds; self.pageTextMaxBytes = pageTextMaxBytes
+            self.separateChatsByPath = separateChatsByPath
             self.killSwitches = killSwitches
         }
         enum CodingKeys: String, CodingKey {
@@ -189,6 +193,7 @@ public struct Config: Codable, Sendable, Equatable {
             case detectionIntervalSeconds = "detection_interval_seconds"
             case contentIntervalSeconds = "content_interval_seconds"
             case idleThresholdSeconds = "idle_threshold_seconds", pageTextMaxBytes = "page_text_max_bytes"
+            case separateChatsByPath = "separate_chats_by_path"
             case killSwitches = "kill_switches"
         }
         public init(from d: Decoder) throws {
@@ -199,6 +204,7 @@ public struct Config: Codable, Sendable, Equatable {
             contentIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .contentIntervalSeconds) ?? z.contentIntervalSeconds
             idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? z.idleThresholdSeconds
             pageTextMaxBytes = try c.decodeIfPresent(Int.self, forKey: .pageTextMaxBytes) ?? z.pageTextMaxBytes
+            separateChatsByPath = try c.decodeIfPresent(Bool.self, forKey: .separateChatsByPath) ?? z.separateChatsByPath
             killSwitches = try c.decodeIfPresent(KillSwitches.self, forKey: .killSwitches) ?? z.killSwitches
         }
     }

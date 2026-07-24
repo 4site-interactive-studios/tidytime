@@ -7,10 +7,12 @@ import TidyStore
 public struct SessionBuildJob: Sendable {
     private let sessionizer: Sessionizer
     private let clock: TidyClock
+    private let separateChatsByPath: Bool
 
-    public init(sessionizer: Sessionizer, clock: TidyClock = SystemClock()) {
+    public init(sessionizer: Sessionizer, clock: TidyClock = SystemClock(), separateChatsByPath: Bool = true) {
         self.sessionizer = sessionizer
         self.clock = clock
+        self.separateChatsByPath = separateChatsByPath
     }
 
     /// Build slices: each sample spans [started_at, ended_at ?? nextStart ?? now]; context key
@@ -24,7 +26,8 @@ public struct SessionBuildJob: Sendable {
             let end = s.endedAt ?? fallbackEnd
             let context = ContextKey.derive(isBrowser: s.isBrowser, url: s.url, appBundleId: s.appBundleId)
             let grouping = ContextKey.grouping(isBrowser: s.isBrowser, url: s.url,
-                                               appBundleId: s.appBundleId, windowTitle: s.windowTitle)
+                                               appBundleId: s.appBundleId, windowTitle: s.windowTitle,
+                                               includePath: separateChatsByPath)
             out.append(SampleSlice(
                 id: id, start: s.startedAt, end: max(s.startedAt, end),
                 contextKey: context, groupingKey: grouping, appBundleId: s.appBundleId, title: s.windowTitle))

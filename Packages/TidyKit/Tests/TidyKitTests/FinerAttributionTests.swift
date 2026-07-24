@@ -26,6 +26,36 @@ final class GroupingKeyTests: XCTestCase {
     func testEmptyTitleFallsBackToCoarse() {
         XCTAssertEqual(ContextKey.grouping(isBrowser: false, url: nil, appBundleId: "com.a", windowTitle: nil), "app:com.a")
     }
+
+    // Separate distinct chats that share a title, via the URL path.
+    func testDistinctChatsSameTitleSeparateByPath() {
+        let a = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/aaa", appBundleId: "c", windowTitle: "New chat")
+        let b = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/bbb", appBundleId: "c", windowTitle: "New chat")
+        XCTAssertNotEqual(a, b)
+        // …but the COARSE key is unchanged, so rules/ask-once still key on the host and converge.
+        XCTAssertEqual(ContextKey.derive(isBrowser: true, url: "https://claude.ai/chat/aaa", appBundleId: "c"), "web:claude.ai")
+        XCTAssertEqual(ContextKey.derive(isBrowser: true, url: "https://claude.ai/chat/bbb", appBundleId: "c"), "web:claude.ai")
+    }
+
+    // Query/fragment (per-message churn) does NOT fragment the session — same chat merges.
+    func testSameChatRevisitedMergesDespiteQueryAndFragment() {
+        let a = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/aaa?msg=1", appBundleId: "c", windowTitle: "New chat")
+        let b = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/aaa?msg=99#bottom", appBundleId: "c", windowTitle: "New chat")
+        XCTAssertEqual(a, b)
+    }
+
+    func testPathSeparationCanBeDisabled() {
+        let a = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/aaa", appBundleId: "c", windowTitle: "New chat", includePath: false)
+        let b = ContextKey.grouping(isBrowser: true, url: "https://claude.ai/chat/bbb", appBundleId: "c", windowTitle: "New chat", includePath: false)
+        XCTAssertEqual(a, b)  // title-only → merged
+    }
+
+    // Native apps have no URL → two same-title chats can't be separated (documented limit).
+    func testNativeSameTitleCannotSeparate() {
+        let a = ContextKey.grouping(isBrowser: false, url: nil, appBundleId: "com.claude", windowTitle: "New chat")
+        let b = ContextKey.grouping(isBrowser: false, url: nil, appBundleId: "com.claude", windowTitle: "New chat")
+        XCTAssertEqual(a, b)
+    }
 }
 
 final class WithinAppSessionSplitTests: XCTestCase {
@@ -42,6 +72,26 @@ final class WithinAppSessionSplitTests: XCTestCase {
         let sessions = try db.sessions(from: 0, to: 100_000)
         XCTAssertEqual(Set(sessions.map(\.contextKey)), ["app:com.anthropic.claude"])  // coarse key shared
         XCTAssertEqual(Set(sessions.compactMap(\.title)), ["acme donation page", "beta audit prep"])
+    }
+
+    /// Two browser chats with the SAME title but different chat ids in the path → two sessions.
+    func testDistinctChatPathsBecomeTwoSessions() throws {
+        let db = try AppDatabase.inMemory()
+        let chrome = "com.google.Chrome"
+        try db.insertSample(ActivitySample(startedAt: 0, endedAt: 200, appBundleId: chrome, appName: "Chrome", windowTitle: "New chat", isBrowser: true, url: "https://claude.ai/chat/aaa", source: "switch", createdAt: 0))
+        try db.insertSample(ActivitySample(startedAt: 200, endedAt: 400, appBundleId: chrome, appName: "Chrome", windowTitle: "New chat", isBrowser: true, url: "https://claude.ai/chat/bbb", source: "switch", createdAt: 0))
+        let job = SessionBuildJob(sessionizer: Sessionizer(detourTolerance: 120, minSessionSeconds: 60),
+                                  clock: FixedClock(Date(timeIntervalSince1970: 5)))
+        XCTAssertEqual(try job.run(db, from: 0, to: 100_000, now: 400), 2)   // separated by chat id
+        XCTAssertEqual(Set(try db.sessions(from: 0, to: 100_000).map(\.contextKey)), ["web:claude.ai"])
+
+        // With the toggle off, same title → one merged session.
+        let db2 = try AppDatabase.inMemory()
+        try db2.insertSample(ActivitySample(startedAt: 0, endedAt: 200, appBundleId: chrome, appName: "Chrome", windowTitle: "New chat", isBrowser: true, url: "https://claude.ai/chat/aaa", source: "switch", createdAt: 0))
+        try db2.insertSample(ActivitySample(startedAt: 200, endedAt: 400, appBundleId: chrome, appName: "Chrome", windowTitle: "New chat", isBrowser: true, url: "https://claude.ai/chat/bbb", source: "switch", createdAt: 0))
+        let jobOff = SessionBuildJob(sessionizer: Sessionizer(detourTolerance: 120, minSessionSeconds: 60),
+                                     clock: FixedClock(Date(timeIntervalSince1970: 5)), separateChatsByPath: false)
+        XCTAssertEqual(try jobOff.run(db2, from: 0, to: 100_000, now: 400), 1)
     }
 }
 

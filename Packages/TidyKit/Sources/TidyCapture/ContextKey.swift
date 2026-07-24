@@ -19,11 +19,21 @@ public enum ContextKey {
         return "app:" + appBundleId
     }
 
-    /// Fine grouping key = coarse key + `#<normalized title>` (omitted when the title is empty).
-    public static func grouping(isBrowser: Bool, url: String?, appBundleId: String, windowTitle: String?) -> String {
+    /// Fine grouping key = coarse key + `#<title>[|p:<path>]`.
+    ///
+    /// When `includePath` is on (browser only), the URL **path** — where a chat/document id lives
+    /// (`claude.ai/chat/<id>`) — is folded in, so two distinct chats that share the same title become
+    /// separate sessions. Query + fragment are dropped, so per-*message* churn (`?msg=…`, `#anchor`)
+    /// does NOT fragment the session. Native apps have no URL, so they stay title-only (two same-title
+    /// native chats can't be separated without app-specific AX — a documented limit).
+    public static func grouping(isBrowser: Bool, url: String?, appBundleId: String,
+                                windowTitle: String?, includePath: Bool = true) -> String {
         let coarse = derive(isBrowser: isBrowser, url: url, appBundleId: appBundleId)
-        let discriminator = normalizedTitle(windowTitle)
-        return discriminator.isEmpty ? coarse : coarse + "#" + discriminator
+        var parts: [String] = []
+        let title = normalizedTitle(windowTitle)
+        if !title.isEmpty { parts.append(title) }
+        if includePath, isBrowser, let path = normalizedPath(url) { parts.append("p:" + path) }
+        return parts.isEmpty ? coarse : coarse + "#" + parts.joined(separator: "|")
     }
 
     /// Lowercased host of a URL, stripping a leading `www.`.
@@ -31,6 +41,16 @@ public enum ContextKey {
         guard let comps = URLComponents(string: url), var host = comps.host?.lowercased() else { return nil }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host.isEmpty ? nil : host
+    }
+
+    /// Stable per-page/per-chat identifier: the URL **path** only (query + fragment dropped, so
+    /// per-message churn is ignored), lowercased, trailing slash trimmed, truncated. Root → nil.
+    static func normalizedPath(_ url: String?) -> String? {
+        guard let url, let comps = URLComponents(string: url) else { return nil }
+        var path = comps.path.lowercased()
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        guard !path.isEmpty, path != "/" else { return nil }
+        return String(path.prefix(120))
     }
 
     /// Normalize a window/tab title into a stable grouping discriminator: lowercased, leading

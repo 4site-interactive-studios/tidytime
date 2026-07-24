@@ -342,6 +342,7 @@ tolerance lives under the separate `sessionization` block, since the Sessionizer
     "heartbeat_seconds": 30,
     "detection_interval_seconds": 1.0,
     "content_interval_seconds": 20.0,
+    "separate_chats_by_path": true,
     "idle_threshold_seconds": 600,
     "page_text_max_bytes": 4096,
     "kill_switches": {
@@ -368,6 +369,14 @@ open sample. A slow **content** poll (`content_interval_seconds`, default 20s, +
 change) does the expensive `document.body.innerText` capture, deduped by hash. (`heartbeat_seconds`
 is legacy.) The `min_session_seconds` floor still drops sub-minute runs as noise, and distinguishing
 two views within an app requires the app's title/AX to actually differ.
+
+**Grouping altitude.** Sessions group by a *fine* key (`ContextKey.grouping`) = coarse key
+(`web:host` / `app:bundle`, kept on the session for rung-1 rules) + normalized title + (when
+`separate_chats_by_path` is on) the browser **URL path**. The path folds in the chat/doc id
+(`claude.ai/chat/<id>`) so two chats sharing a title are distinct sessions, while **query + fragment
+are dropped** so per-message churn doesn't fragment. Native apps have no URL → title-only (two
+same-title native chats can't be separated without app-specific AX). Set `separate_chats_by_path:
+false` to group by title only (fewer, coarser sessions).
 
 Semantics: a `kill_switches` flag set `false` disables that source cleanly — e.g. `chrome: false`
 stops the Chrome adapter (no URL/title sampling and no `page_snapshots`); the ingest switches
