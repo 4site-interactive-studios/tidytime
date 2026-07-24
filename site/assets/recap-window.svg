@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" font-family="-apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="Mockup of the TidyTime end-of-day recap window with synthetic data">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2027"/><stop offset="1" stop-color="#15171d"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="560" rx="14" fill="url(#bg)"/>
+  <!-- title bar -->
+  <g>
+    <circle cx="26" cy="26" r="6" fill="#ff5f57"/><circle cx="46" cy="26" r="6" fill="#febc2e"/><circle cx="66" cy="26" r="6" fill="#28c840"/>
+    <text x="450" y="30" fill="#c9ced8" font-size="13" text-anchor="middle" font-weight="600">TidyTime — Recap · Wed Jul 22</text>
+  </g>
+  <line x1="0" y1="50" x2="900" y2="50" stroke="#2a2e37"/>
+  <!-- summary -->
+  <text x="24" y="78" fill="#e7ebf2" font-size="15" font-weight="700">7h 5m observed · 84% attributed · 3h 45m already logged</text>
+
+  <!-- LEFT: timeline -->
+  <text x="24" y="112" fill="#8b93a3" font-size="12" font-weight="700">TIMELINE</text>
+  <g font-size="12">
+    <!-- blocks -->
+    <rect x="24" y="124" width="360" height="34" rx="7" fill="#2b3550" stroke="#3d5a9e"/>
+    <text x="36" y="145" fill="#dbe4ff">Acme · donation page (ENgrid)</text><text x="360" y="145" fill="#9fb2e6" text-anchor="end">72m</text>
+    <rect x="24" y="164" width="360" height="34" rx="7" fill="#2f4536" stroke="#4f8a5b"/>
+    <text x="36" y="185" fill="#d7f2dd">Meeting · Acme + Beta sync (Fathom)</text><text x="360" y="185" fill="#a6d9b3" text-anchor="end">61m</text>
+    <rect x="24" y="204" width="360" height="34" rx="7" fill="#3a3550" stroke="#7d6bb0"/>
+    <text x="36" y="225" fill="#e6ddf7">Slack · #acme-project (drive-by help)</text><text x="360" y="225" fill="#c3b4e4" text-anchor="end">11m</text>
+    <rect x="24" y="244" width="360" height="34" rx="7" fill="#333941" stroke="#4d5560"/>
+    <text x="36" y="265" fill="#c9ced8">Away · lunch</text><text x="360" y="265" fill="#98a0ad" text-anchor="end">47m</text>
+    <rect x="24" y="284" width="360" height="34" rx="7" fill="#2b3550" stroke="#3d5a9e"/>
+    <text x="36" y="305" fill="#dbe4ff">Beta · audit prep (Google Doc)</text><text x="360" y="305" fill="#9fb2e6" text-anchor="end">38m</text>
+    <rect x="24" y="324" width="360" height="34" rx="7" fill="#333941" stroke="#4d5560"/>
+    <text x="36" y="345" fill="#c9ced8">Internal · weekly ops</text><text x="360" y="345" fill="#98a0ad" text-anchor="end">30m</text>
+  </g>
+
+  <line x1="410" y1="66" x2="410" y2="536" stroke="#2a2e37"/>
+
+  <!-- RIGHT: suggestion stack -->
+  <text x="436" y="112" fill="#8b93a3" font-size="12" font-weight="700">SUGGESTIONS</text>
+  <!-- card 1 -->
+  <g>
+    <rect x="436" y="122" width="440" height="86" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="452" y="146" fill="#e7ebf2" font-size="13" font-weight="700">Acme › Donation Page › Build donation form</text>
+    <text x="812" y="146" fill="#7fd39b" font-size="13" font-weight="700" text-anchor="end">1h 15m</text>
+    <text x="452" y="166" fill="#aeb6c2" font-size="11">Reviewed and wired the ENgrid donation form; QA'd staging.</text>
+    <text x="452" y="184" fill="#7a828f" font-size="10">rule · matched url_host 'acme.org' · ●●●●</text>
+    <text x="452" y="201" fill="#8ab4ff" font-size="11">Copy note</text>
+    <text x="520" y="201" fill="#8ab4ff" font-size="11">Copy all</text>
+    <text x="588" y="201" fill="#8ab4ff" font-size="11">Open in Productive</text>
+    <text x="810" y="201" fill="#7fd39b" font-size="11" text-anchor="end">Log it ✓</text>
+  </g>
+  <!-- card 2 -->
+  <g>
+    <rect x="436" y="218" width="440" height="72" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="452" y="242" fill="#e7ebf2" font-size="13" font-weight="700">Beta › Compliance Audit (meeting segment)</text>
+    <text x="812" y="242" fill="#f2c96b" font-size="13" font-weight="700" text-anchor="end">15m ↑</text>
+    <text x="452" y="262" fill="#aeb6c2" font-size="11">Segment of the 61-min call · 00:14:40–00:20:55 · rounded up</text>
+    <text x="452" y="280" fill="#7a828f" font-size="10">transcript split · ●●●○</text>
+  </g>
+  <!-- card 3 (pool) -->
+  <g>
+    <rect x="436" y="300" width="440" height="72" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="452" y="324" fill="#e7ebf2" font-size="13" font-weight="700">Acme (pool · propose task)</text>
+    <text x="812" y="324" fill="#f2c96b" font-size="13" font-weight="700" text-anchor="end">15m ↑</text>
+    <text x="452" y="344" fill="#aeb6c2" font-size="11">Slack: helped Nick debug ENgrid selector; reviewed staging link.</text>
+    <text x="452" y="362" fill="#7a828f" font-size="10">pooled 3 micro-work items · ●●○○</text>
+  </g>
+  <!-- questions -->
+  <text x="436" y="404" fill="#8b93a3" font-size="12" font-weight="700">QUESTIONS</text>
+  <rect x="436" y="414" width="440" height="40" rx="10" fill="#241f16" stroke="#5a4a2a"/>
+  <text x="452" y="439" fill="#f2d9a6" font-size="12">Which client is <tspan font-weight="700">staging.example.org</tspan>?  [ pick client ▾ ]</text>
+
+  <text x="436" y="500" fill="#6b7280" font-size="10">Illustrative mockup · synthetic data · not a live screenshot</text>
+</svg>

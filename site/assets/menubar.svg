@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 300" font-family="-apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="Mockup of the TidyTime menu bar popover with synthetic data">
+  <rect width="340" height="300" rx="14" fill="#1d2027"/>
+  <rect x="0" y="0" width="340" height="30" rx="14" fill="#23272f"/>
+  <text x="16" y="20" fill="#c9ced8" font-size="12" font-weight="700">⏱ TidyTime</text>
+  <circle cx="316" cy="15" r="5" fill="#28c840"/>
+  <line x1="0" y1="42" x2="340" y2="42" stroke="#2a2e37"/>
+  <text x="16" y="66" fill="#8b93a3" font-size="11" font-weight="700">TODAY SO FAR</text>
+  <text x="16" y="92" fill="#e7ebf2" font-size="14" font-weight="700">6h 20m observed</text>
+  <text x="16" y="112" fill="#aeb6c2" font-size="12">3h 45m already logged in Productive</text>
+  <rect x="16" y="126" width="308" height="8" rx="4" fill="#2a2e37"/>
+  <rect x="16" y="126" width="182" height="8" rx="4" fill="#3d5a9e"/>
+  <line x1="0" y1="152" x2="340" y2="152" stroke="#2a2e37"/>
+  <circle cx="24" cy="176" r="4" fill="#f2c96b"/>
+  <text x="40" y="181" fill="#e7ebf2" font-size="13" font-weight="600">7 suggestions pending</text>
+  <text x="16" y="212" fill="#8ab4ff" font-size="13">▸ Open recap</text>
+  <text x="16" y="240" fill="#c9ced8" font-size="13">⏸ Pause capture</text>
+  <text x="16" y="268" fill="#c9ced8" font-size="13">⚙ Settings</text>
+  <text x="324" y="290" fill="#6b7280" font-size="9" text-anchor="end">mockup · synthetic data</text>
+</svg>

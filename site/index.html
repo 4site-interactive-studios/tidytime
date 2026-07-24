@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TidyTime — passive time capture & attribution for Productive</title>
+<meta name="description" content="A native macOS menu bar app that watches how you actually spend your day and hands you ready-to-enter Productive time entries. It recommends; you enter.">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d23; --muted: #5b6472; --card: #f6f8fb; --line: #e5e9f0;
+    --accent: #3d5a9e; --accent-fg: #fff; --good: #2f7d4f; --warn: #a86a12; --code: #eef1f6;
+    --maxw: 960px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --fg: #e7ebf2; --muted: #99a2b2; --card: #1c2029; --line: #2a2f3a;
+      --accent: #8ab4ff; --accent-fg: #0f1218; --good: #7fd39b; --warn: #f2c96b; --code: #1a1e27;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+  header.hero { padding: 72px 0 48px; text-align: center; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .04em;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; margin-bottom: 20px; }
+  h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.05; margin: 0 0 16px; letter-spacing: -.02em; }
+  h1 .grad { background: linear-gradient(90deg, var(--accent), var(--good)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+  .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: 15px; }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); }
+  .btn.ghost { border: 1px solid var(--line); color: var(--fg); }
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 680px; }
+  .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .card .ic { font-size: 22px; margin-bottom: 10px; display: block; }
+  figure { margin: 0; }
+  figure img { width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); display: block; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 8px; text-align: center; }
+  .shots { display: grid; gap: 26px; }
+  .shots .two { display: grid; gap: 26px; grid-template-columns: 1fr; }
+  @media (min-width: 720px) { .shots .two { grid-template-columns: 1fr 1.4fr; align-items: start; } }
+  .ladder { counter-reset: rung; display: grid; gap: 10px; }
+  .ladder .step { display: flex; gap: 14px; align-items: flex-start; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .ladder .n { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; background: var(--accent);
+    color: var(--accent-fg); font-weight: 800; display: grid; place-items: center; font-size: 14px; }
+  .ladder .step b { font-size: 15px; } .ladder .step span { color: var(--muted); font-size: 14px; }
+  ul.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  ul.checks li { padding-left: 28px; position: relative; color: var(--muted); }
+  ul.checks li::before { content: "✓"; position: absolute; left: 0; color: var(--good); font-weight: 800; }
+  ul.checks li b { color: var(--fg); }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
+    overflow-x: auto; font: 13.5px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre .c { color: var(--muted); }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 14px; }
+  .flow .pill { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--fg); font-weight: 600; }
+  .flow .arrow { opacity: .5; }
+  .stats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; text-align: center; }
+  .stat .big { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+  .stat .lbl { color: var(--muted); font-size: 13px; }
+  .note { background: var(--code); border-left: 3px solid var(--warn); border-radius: 8px; padding: 12px 16px; color: var(--muted); font-size: 14px; }
+  footer { border-top: 1px solid var(--line); padding: 30px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
+  .phases { display: grid; gap: 8px; }
+  .phase { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .phase .p { font-weight: 800; color: var(--accent); } .phase .d { color: var(--muted); font-size: 14px; }
+  .phase .st { color: var(--good); font-size: 13px; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge">macOS · Swift/SwiftUI · read-only against Productive</span>
+    <h1>Log the time you'd have <span class="grad">forgotten.</span></h1>
+    <p class="lede">TidyTime is a native macOS menu bar app that watches how you actually spend your
+      workday, reconstructs it into loggable blocks, and hands you ready-to-enter
+      <strong>Productive</strong> time entries — task, rounded duration, and a one-line note.
+      It recommends; you enter.</p>
+    <div class="cta">
+      <a class="btn primary" href="#start">Get started</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">Built for backfill, not stopwatch discipline: capture everything passively, attribute
+      afterward, and reconcile a whole day in a few minutes instead of an end-of-week archaeology session.</p>
+    <div class="flow">
+      <span class="pill">Capture</span><span class="arrow">→</span>
+      <span class="pill">Ingest</span><span class="arrow">→</span>
+      <span class="pill">Store (SQLite)</span><span class="arrow">→</span>
+      <span class="pill">Understand</span><span class="arrow">→</span>
+      <span class="pill">Suggest</span><span class="arrow">→</span>
+      <span class="pill">Recap</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>See it</h2>
+    <p class="sub">The recap window works the day top to bottom: the timeline on the left (colored by
+      client), the suggestion stack on the right, questions at the bottom.</p>
+    <div class="shots">
+      <figure>
+        <img src="assets/recap-window.svg" alt="End-of-day recap window mockup with a timeline and suggestion cards">
+        <figcaption>End-of-day recap — timeline + suggestion stack.</figcaption>
+      </figure>
+      <div class="two">
+        <figure>
+          <img src="assets/menubar.svg" alt="Menu bar popover mockup">
+          <figcaption>Menu bar popover — today so far.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/dashboard.svg" alt="Weekly dashboard mockup">
+          <figcaption>Weekly dashboard — metrics + AI overhead.</figcaption>
+        </figure>
+      </div>
+    </div>
+    <p class="note" style="margin-top:22px">These are <strong>illustrative mockups with synthetic data</strong>,
+      not live screenshots. TidyTime is a menu bar app that can't be captured programmatically in a
+      headless build environment — the visuals reflect the shipped read-models and UI structure.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Features</h2>
+    <p class="sub">Five layers, each useful without the ones above it.</p>
+    <div class="grid">
+      <div class="card"><span class="ic">👀</span><h3>Passive capture</h3><p>Foreground app + window titles (via Accessibility, never Screen Recording), Chrome URL/title/visible text, idle & away detection — under ~2% CPU.</p></div>
+      <div class="card"><span class="ic">🔌</span><h3>Read-only ingest</h3><p>Productive (clients/projects/tasks/entries), Fathom meetings & transcripts, Google Calendar, and Slack DMs/channels — including messages you sent from your phone.</p></div>
+      <div class="card"><span class="ic">🧭</span><h3>Attribution ladder</h3><p>Rules → lexical → on-device model → economy cloud → Claude. Local-first, then cheap, then smart — most sessions never touch the cloud.</p></div>
+      <div class="card"><span class="ic">🧾</span><h3>Ready-to-enter suggestions</h3><p>Grouped by task, rounded to 15 minutes with a slight round-up bias, micro-work pooled, meetings split per client, gap-analyzed against what you already logged.</p></div>
+      <div class="card"><span class="ic">🔔</span><h3>Nudges & recap</h3><p>Rate-limited, meeting-aware nudges during the day; a full recap at end of day (or first thing next morning). Ignoring nudges costs nothing.</p></div>
+      <div class="card"><span class="ic">📊</span><h3>Metered AI</h3><p>Every cloud call is logged with tokens and dollar cost; per-provider and global daily budget caps drop the app to local-only instead of failing silently.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The classification ladder</h2>
+    <p class="sub">Each session climbs only as far as it needs to.</p>
+    <div class="ladder">
+      <div class="step"><span class="n">1</span><div><b>Deterministic rules</b><br><span>A known signal (client domain, Slack channel, meeting attendee) resolves instantly. Zero cost, fully local.</span></div></div>
+      <div class="step"><span class="n">2</span><div><b>Lexical matching</b><br><span>Tokenized titles/URLs scored against your Productive clients, projects, and tasks. High-margin matches classify; ambiguous ones become a question.</span></div></div>
+      <div class="step"><span class="n">3</span><div><b>On-device model</b><br><span>Apple Foundation Models (macOS 26 + Apple Intelligence) with guided generation. Free, private, on your Mac.</span></div></div>
+      <div class="step"><span class="n">4</span><div><b>Economy cloud</b><br><span>Fireworks AI (Kimi/GLM-class) for the rest — session batches, transcript splitting, note drafting. Cents per day.</span></div></div>
+      <div class="step"><span class="n">5</span><div><b>Claude escalation</b><br><span>Only when the cheap tier earns it: invalid output, low confidence, or a transcript that doesn't add up.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Privacy &amp; guardrails</h2>
+    <p class="sub">The product's trust depends on invariants that are enforced by test, not discipline.</p>
+    <ul class="checks">
+      <li><b>Read-only against Productive.</b> No write call exists in v1 — the request builder refuses anything but GET.</li>
+      <li><b>The sensitivity gate fails closed.</b> Personnel, compensation, and legal content never reaches a cloud model; a seeded secret is proven to appear in no outbound payload.</li>
+      <li><b>No Screen Recording permission.</b> Window titles come from the Accessibility API, never <code>CGWindowList</code>.</li>
+      <li><b>Secrets live in the macOS Keychain only</b> — never in config, the database, logs, or fixtures.</li>
+      <li><b>Everything stays on one Mac,</b> encrypted at rest by FileVault, purged on a 90-day retention schedule.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Getting started</h2>
+    <p class="sub">Everything is terminal-drivable. Prerequisites: macOS 14+ (macOS 26 + Apple
+      Intelligence unlocks the on-device rung), Xcode 16+, and Homebrew.</p>
+    <pre><span class="c"># clone, then from the repo root:</span>
+make bootstrap                             <span class="c"># install XcodeGen + generate the Xcode project</span>
+cp Local.xcconfig.example Local.xcconfig   <span class="c"># set DEVELOPMENT_TEAM (a free Apple ID works)</span>
+cp config.example.json config.json         <span class="c"># non-secret settings</span>
+make build                                 <span class="c"># build the app</span>
+make run                                   <span class="c"># launch — the icon appears in the menu bar</span>
+make test                                  <span class="c"># run the TidyKit unit tests</span></pre>
+    <p class="note" style="margin-top:18px"><strong>Stable signing matters.</strong> macOS ties
+      Accessibility/Automation grants to the code signature — sign with a stable identity so grants
+      survive rebuilds. One-time setup (tokens, OAuth, Slack app) is a guided checklist in the repo docs.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Build status</h2>
+    <p class="sub">Capture-first and strictly phased; each phase ships tested logic behind protocols.</p>
+    <div class="stats" style="margin-bottom:24px">
+      <div class="stat"><div class="big">7</div><div class="lbl">phases complete (0–6)</div></div>
+      <div class="stat"><div class="big">117</div><div class="lbl">unit tests passing</div></div>
+      <div class="stat"><div class="big">8</div><div class="lbl">SwiftPM library targets</div></div>
+      <div class="stat"><div class="big">9</div><div class="lbl">enforced guardrails</div></div>
+    </div>
+    <div class="phases">
+      <div class="phase"><span class="p">0</span><span class="d">Test &amp; debug infrastructure — config, secrets, structured logging, diagnostics</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">1</span><span class="d">Capture — watcher, Chrome adapter, sessionization, retention</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">2</span><span class="d">Productive mirror — read-only sync</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">3</span><span class="d">Meetings &amp; calendar — Fathom + Google</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">4</span><span class="d">Slack — DM/channel ingest</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">5</span><span class="d">Recap &amp; rules — suggestion engine + recap</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">6</span><span class="d">Intelligence — AI router, ledger, budgets, nudges</span><span class="st">✓ done</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>TidyTime — part of the “Tidy” family. Built by Bryan Casler driving Claude Code.<br>
+    Private / internal (4Site Studios). This page uses synthetic data throughout.</p>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 340" font-family="-apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="Mockup of the TidyTime weekly dashboard with synthetic data">
+  <rect width="900" height="340" rx="14" fill="#1d2027"/>
+  <text x="24" y="38" fill="#e7ebf2" font-size="16" font-weight="700">This week</text>
+  <text x="876" y="38" fill="#7a828f" font-size="12" text-anchor="end">metrics, no targets · local only</text>
+  <!-- stat tiles -->
+  <g>
+    <rect x="24" y="56" width="200" height="92" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="40" y="82" fill="#8b93a3" font-size="11" font-weight="700">OBSERVED VS LOGGED</text>
+    <text x="40" y="118" fill="#e7ebf2" font-size="24" font-weight="800">33h / 28h</text>
+    <text x="40" y="138" fill="#7fd39b" font-size="11">85% capture health</text>
+  </g>
+  <g>
+    <rect x="240" y="56" width="200" height="92" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="256" y="82" fill="#8b93a3" font-size="11" font-weight="700">BILLABLE VS INTERNAL</text>
+    <text x="256" y="118" fill="#e7ebf2" font-size="24" font-weight="800">71% / 29%</text>
+    <rect x="256" y="130" width="168" height="8" rx="4" fill="#2a2e37"/>
+    <rect x="256" y="130" width="119" height="8" rx="4" fill="#4f8a5b"/>
+  </g>
+  <g>
+    <rect x="456" y="56" width="200" height="92" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="472" y="82" fill="#8b93a3" font-size="11" font-weight="700">TOP CLIENT</text>
+    <text x="472" y="118" fill="#e7ebf2" font-size="24" font-weight="800">Acme · 12h</text>
+    <text x="472" y="138" fill="#9fb2e6" font-size="11">Beta 7h · Internal 9h</text>
+  </g>
+  <g>
+    <rect x="672" y="56" width="204" height="92" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="688" y="82" fill="#8b93a3" font-size="11" font-weight="700">AI OVERHEAD (MTD)</text>
+    <text x="688" y="118" fill="#e7ebf2" font-size="24" font-weight="800">$0.42</text>
+    <text x="688" y="138" fill="#7a828f" font-size="11">on-device 71% · escalation 6%</text>
+  </g>
+  <!-- per-client bar chart -->
+  <text x="24" y="182" fill="#8b93a3" font-size="11" font-weight="700">PER-CLIENT HOURS</text>
+  <g font-size="11">
+    <text x="24" y="212" fill="#c9ced8">Acme</text>     <rect x="120" y="202" width="360" height="12" rx="6" fill="#3d5a9e"/><text x="492" y="212" fill="#9fb2e6">12h</text>
+    <text x="24" y="238" fill="#c9ced8">Internal</text> <rect x="120" y="228" width="270" height="12" rx="6" fill="#4d5560"/><text x="402" y="238" fill="#98a0ad">9h</text>
+    <text x="24" y="264" fill="#c9ced8">Beta</text>     <rect x="120" y="254" width="210" height="12" rx="6" fill="#4f8a5b"/><text x="342" y="264" fill="#a6d9b3">7h</text>
+    <text x="24" y="290" fill="#c9ced8">Gamma</text>    <rect x="120" y="280" width="150" height="12" rx="6" fill="#7d6bb0"/><text x="282" y="290" fill="#c3b4e4">5h</text>
+  </g>
+  <text x="876" y="322" fill="#6b7280" font-size="10" text-anchor="end">Illustrative mockup · synthetic data · not a live screenshot</text>
+</svg>
