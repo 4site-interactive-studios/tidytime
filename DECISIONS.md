@@ -168,3 +168,36 @@ describes.
 - `NSLock.lock()/unlock()` are **unavailable from async contexts** in Swift 6; use
   `lock.withLock { }` inside `async` functions (applied in `FakeHTTPClient.send`).
 - `resolveSelf(email:)` is case-insensitive and clears any prior `is_self` before setting the match.
+
+---
+
+## Phase 3 — Meetings & calendar
+
+### 2026-07-23 · Fathom: duration ground truth + build-time-check DTO shape
+- Meeting **duration = recording span** (`recording_end − recording_start`), falling back to the
+  scheduled slot. `Meeting.id` = stringified `recording_id`. Transcript timestamps parsed from
+  `"HH:MM:SS"` → `start_seconds`. Summary read from `default_summary.markdown_formatted`. Response
+  envelope `{ items, next_cursor }`. **All of these are ⚠️ build-time checks** (fathom-api.md) — the
+  DTOs in `FathomClient.swift` are the single place to fix if the live API differs.
+- `meetings.calendar_event_id` is left **NULL** — Fathom doesn't return the Google event id. A later
+  step (Phase 5+) can match a meeting to a `calendar_events` row by time window + attendees.
+
+### 2026-07-23 · Idempotent re-sync of meetings
+- On re-sync, invitees and utterances are **replaced** (delete-by-meeting then insert), and the
+  meeting's `kind='meeting'` session is **deleted by `source_ref` then re-inserted**, so re-running
+  `FathomSync` never duplicates rows/sessions. Tested (`FathomSyncTests` runs sync twice).
+
+### 2026-07-23 · Google Calendar specifics
+- Google returns **camelCase** JSON, so its DTOs decode **without** CodingKeys/strategy (unlike
+  Productive/Fathom). `status == "cancelled"` events become **deletions** (`CalendarPage.deletedIds`);
+  others upsert. `is_external` per attendee via `internal_domains` (unknown domain → external,
+  conservative). `conference_url` = `hangoutLink` else the first `video` conference entry point.
+  Cursor is the `nextSyncToken`.
+- **OAuth is behind a seam:** `LiveGoogleCalendarClient` takes an injected
+  `accessToken: () async throws -> String`. The token exchange/refresh (loopback + PKCE, Internal
+  client, refresh token in Keychain) is live-only and untested; request building + parsing are
+  tested with a static token via the fake.
+
+### 2026-07-23 · Away-prompt data path
+- The away prompt is UI (Phase 6 surface), but its data operations exist now: `resolveAwayGap`
+  (attribution + optional client/project) and `unresolvedAwayGaps`. Tested.

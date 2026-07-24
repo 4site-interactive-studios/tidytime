@@ -13,6 +13,7 @@ public enum Migrations {
         registerV1Core(&m)
         registerV1Capture(&m)
         registerV1Productive(&m)
+        registerV1Meetings(&m)
         return m
     }
 
@@ -152,6 +153,66 @@ public enum Migrations {
                 t.column("is_self", .integer).notNull().defaults(to: 0)
                 t.column("synced_at", .integer).notNull()
             }
+        }
+    }
+
+    private static func registerV1Meetings(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v1-meetings") { db in
+            try db.create(table: "calendar_events") { t in
+                t.primaryKey("id", .text)
+                t.column("calendar_id", .text).notNull()
+                t.column("title", .text)
+                t.column("description", .text)
+                t.column("location", .text)
+                t.column("start_at", .integer).notNull().indexed()
+                t.column("end_at", .integer).notNull()
+                t.column("all_day", .integer).notNull().defaults(to: 0)
+                t.column("status", .text)
+                t.column("organizer_email", .text)
+                t.column("attendees_json", .text)
+                t.column("conference_url", .text)
+                t.column("ical_uid", .text)
+                t.column("updated_at", .integer)
+                t.column("fetched_at", .integer).notNull()
+            }
+            try db.create(table: "meetings") { t in
+                t.primaryKey("id", .text)
+                t.column("source", .text).notNull()
+                t.column("title", .text)
+                t.column("scheduled_start", .integer)
+                t.column("scheduled_end", .integer)
+                t.column("recording_start", .integer)
+                t.column("recording_end", .integer)
+                t.column("duration_seconds", .integer).notNull()
+                t.column("has_transcript", .integer).notNull().defaults(to: 0)
+                t.column("has_summary", .integer).notNull().defaults(to: 0)
+                t.column("summary", .text)
+                t.column("external_url", .text)
+                t.column("calendar_event_id", .text).references("calendar_events", onDelete: .setNull)
+                t.column("fetched_at", .integer).notNull()
+                t.column("created_at", .integer).notNull()
+            }
+            try db.create(table: "meeting_invitees") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("meeting_id", .text).notNull()
+                    .references("meetings", onDelete: .cascade).indexed()
+                t.column("email", .text)
+                t.column("name", .text)
+                t.column("email_domain", .text).indexed()
+                t.column("is_external", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "transcript_utterances") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("meeting_id", .text).notNull()
+                    .references("meetings", onDelete: .cascade)
+                t.column("idx", .integer).notNull()
+                t.column("speaker", .text)
+                t.column("speaker_email", .text)
+                t.column("start_seconds", .double).notNull()
+                t.column("end_seconds", .double)
+                t.column("text", .text).notNull()
+            }
+            try db.create(indexOn: "transcript_utterances", columns: ["meeting_id", "idx"])
         }
     }
 }
