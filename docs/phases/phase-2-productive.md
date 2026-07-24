@@ -12,6 +12,19 @@ popover that shows today's logged total.
 
 ---
 
+## Status: as built (2026-07-23)
+
+> ✅ **Logic complete + unit-tested** (63 tests total). Shipped: the reusable ingest HTTP layer
+> (`HTTPClient`/`Backoff`/429-retry), a JSON:API decoder, the GET-only `ProductiveRequestBuilder`
+> (refuses any non-GET — **G1**, tested), `LiveProductiveClient` (pagination + retry + `PDMapper`),
+> `ProductiveSync` (upsert + `sync_state` cursor + self-resolution), the `v1-productive` migration +
+> pd_* records/DAOs, and `ProductiveDeepLink`. Full write-up:
+> [../retrospectives/phase-2.md](../retrospectives/phase-2.md).
+>
+> ⚠️ **Manual/build-time checks:** exact Productive attribute + `filter[...]` key names (fixtures
+> follow the documented shape; mapping isolated in `ProductiveClient.swift`), and the task deep-link
+> pattern captured from the web app. The cache matching the live UI needs a real token.
+
 ## Goal
 
 By the end of Phase 2 the local SQLite cache is a faithful, read-only mirror of *your slice* of
