@@ -12,6 +12,19 @@ away prompt, and land the attendee-domain bootstrap inputs for entity resolution
 
 ---
 
+## Status: as built (2026-07-23)
+
+> ✅ **Logic complete + unit-tested** (72 tests total). Shipped: `v1-meetings` migration + records/
+> DAOs, `TimeParse`, the Fathom client/mapper/sync (`MeetingSessionBuilder`, recording-span
+> duration, idempotent re-sync), the Google Calendar client/mapper/sync (camelCase, cancelled →
+> delete, `is_external` via `internal_domains`, `syncToken` cursor), and away-gap resolution. OAuth
+> access-token exchange is behind an injected provider seam. Full write-up:
+> [../retrospectives/phase-3.md](../retrospectives/phase-3.md).
+>
+> ⚠️ **Manual/build-time checks:** Fathom API access + exact response shape; the Google Internal-type
+> OAuth loopback+PKCE flow and refresh-token longevity; meetings appearing with real durations
+> end-to-end. `meetings.calendar_event_id` is left NULL until a later time+attendee match.
+
 ## Goal
 
 After Phase 3, **yesterday's meetings appear with real recorded durations and attendees**, and
