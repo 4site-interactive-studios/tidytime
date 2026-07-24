@@ -15,6 +15,7 @@ public enum Migrations {
         registerV1Productive(&m)
         registerV1Meetings(&m)
         registerV1Slack(&m)
+        registerV1Understand(&m)
         return m
     }
 
@@ -234,6 +235,101 @@ public enum Migrations {
                 t.column("permalink", .text)
                 t.column("fetched_at", .integer).notNull()
                 t.uniqueKey(["conversation_id", "ts"])
+            }
+        }
+    }
+
+    private static func registerV1Understand(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v1-understand") { db in
+            try db.create(table: "entity_signals") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("signal_type", .text).notNull()
+                t.column("signal_value", .text).notNull().indexed()
+                t.column("client_id", .text)
+                t.column("project_id", .text)
+                t.column("provenance", .text).notNull()
+                t.column("weight", .double).notNull().defaults(to: 1.0)
+                t.column("hit_count", .integer).notNull().defaults(to: 0)
+                t.column("last_seen_at", .integer)
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()
+                t.uniqueKey(["signal_type", "signal_value"])
+            }
+            try db.create(table: "suggestions") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("day", .text).notNull()
+                t.column("kind", .text).notNull()
+                t.column("client_id", .text)
+                t.column("project_id", .text)
+                t.column("task_id", .text)
+                t.column("proposed_task_title", .text)
+                t.column("proposed_task_description", .text)
+                t.column("minutes", .integer).notNull()
+                t.column("raw_seconds", .integer).notNull()
+                t.column("billable", .integer)
+                t.column("note", .text)
+                t.column("confidence", .double).notNull()
+                t.column("produced_by_rung", .integer).notNull()
+                t.column("rationale", .text)
+                t.column("is_rounded_up", .integer).notNull().defaults(to: 0)
+                t.column("is_sensitive", .integer).notNull().defaults(to: 0)
+                t.column("deep_link", .text)
+                t.column("status", .text).notNull().defaults(to: "pending")
+                t.column("source_refs_json", .text).notNull().defaults(to: "{}")
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()
+            }
+            try db.create(indexOn: "suggestions", columns: ["day", "status"])
+            try db.create(table: "decisions") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("suggestion_id", .integer).references("suggestions", onDelete: .setNull)
+                t.column("action", .text).notNull()
+                t.column("before_json", .text)
+                t.column("after_json", .text)
+                t.column("client_id", .text)
+                t.column("project_id", .text)
+                t.column("task_id", .text)
+                t.column("note", .text)
+                t.column("created_at", .integer).notNull().indexed()
+            }
+            try db.create(table: "pools") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("day", .text).notNull().indexed()
+                t.column("client_id", .text)
+                t.column("project_id", .text)
+                t.column("accumulated_seconds", .integer).notNull().defaults(to: 0)
+                t.column("item_count", .integer).notNull().defaults(to: 0)
+                t.column("items_json", .text).notNull().defaults(to: "[]")
+                t.column("status", .text).notNull().defaults(to: "open")
+                t.column("suggestion_id", .integer)
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()
+            }
+            try db.create(table: "resolution_questions") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("question", .text).notNull()
+                t.column("signal_type", .text).notNull()
+                t.column("signal_value", .text).notNull()
+                t.column("status", .text).notNull().defaults(to: "open")
+                t.column("answer_client_id", .text)
+                t.column("answer_project_id", .text)
+                t.column("created_at", .integer).notNull()
+                t.column("answered_at", .integer)
+                t.uniqueKey(["signal_type", "signal_value"])
+            }
+            try db.create(table: "daily_rollups") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("day", .text).notNull().unique()
+                t.column("observed_seconds", .integer).notNull().defaults(to: 0)
+                t.column("attributed_seconds", .integer).notNull().defaults(to: 0)
+                t.column("logged_minutes", .integer).notNull().defaults(to: 0)
+                t.column("billable_minutes", .integer).notNull().defaults(to: 0)
+                t.column("internal_minutes", .integer).notNull().defaults(to: 0)
+                t.column("per_client_json", .text).notNull().defaults(to: "{}")
+                t.column("capture_health", .double)
+                t.column("ai_cost_usd", .double).notNull().defaults(to: 0)
+                t.column("created_at", .integer).notNull()
+                t.column("updated_at", .integer).notNull()
             }
         }
     }

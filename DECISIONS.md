@@ -204,6 +204,48 @@ describes.
 
 ---
 
+## Phase 5 — Recap & rules
+
+### 2026-07-23 · Classification rungs 1–2
+- **Rung 1 (rules):** exact match of a session's candidate values (web host, Slack conversation id,
+  meeting invitee domains) against `entity_signals`. User-confirmed signals outrank inferred; a
+  match yields confidence 0.85 (inferred) / 0.97 (user-confirmed).
+- **Rung 2 (lexical):** token-overlap of the session (title + host + invitee domains) against a
+  candidate index built from company/project/task names. Tie-break prefers the **less specific**
+  candidate (company over project over task) to avoid over-committing; if a **different client**
+  ties at the top score it's ambiguous → return nil (becomes a resolution question). Confidence
+  `min(0.8, 0.45 + 0.12·score)`.
+- **EntityBootstrap** seeds `url_host` + `email_domain` signals from company domains so a session on
+  a client's site resolves at rung 1 for free.
+
+### 2026-07-23 · RoundingPolicy
+- `floor(units + roundUpBias)` with a **minimum of one increment** for any kept item, so 6 real
+  minutes → 15 (flagged `is_rounded_up`), matching the plan's meeting-split example. Bias 0.4 rounds
+  up once the fractional part exceeds 0.6.
+
+### 2026-07-23 · Pooling rolls up EVERYTHING at recap (test-driven correction)
+- Two-level: sessions aggregate into groups by task→project→client; a group **at/over** the
+  standalone threshold becomes a suggestion, a **sub-threshold** group pools per project.
+- **Correction:** initially pools only rolled up at ≥15 min, which meant scattered <15-min project
+  work silently evaporated — the exact failure pooling exists to prevent. Since `generate()` IS the
+  recap run, it now rolls up **every non-empty pool** ("or at recap time", PLAN §8). The
+  `poolThresholdMinutes` param is retained for a future real-time promotion path. A test asserting
+  the old behavior forced this fix.
+
+### 2026-07-23 · Gap analysis, new-task, learning, sensitivity
+- **Gap analysis:** per-task logged minutes (from `pd_time_entries`) are subtracted from a task
+  group's rounded minutes; a fully-logged task is skipped (`skippedAlreadyLogged`).
+- **New-task proposals:** a client/project group with no task → `kind='new_task'` with a proposed
+  title from the session.
+- **Learning:** a **reassign** decision writes a `user_confirmed` signal (outranks inferred forever);
+  `DayClassifier` strengthens matched signals as `inferred`.
+- **SensitivityGate** (G2) fails closed: case-insensitive substring match against configured
+  keywords + flagged people/terms; `gated()` returns nil for sensitive text. Used by Phase 6 before
+  any cloud send.
+- `RecapAssembler` builds the tested read model + daily rollup; `RecapView` (SwiftUI) is compile-only.
+
+---
+
 ## Phase 4 — Slack
 
 ### 2026-07-23 · Slack ingest shape

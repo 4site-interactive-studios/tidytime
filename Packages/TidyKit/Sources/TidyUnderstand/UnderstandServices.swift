@@ -1,0 +1,128 @@
+import Foundation
+import TidyCore
+import TidyStore
+
+/// Bootstraps `entity_signals` from the Productive cache — company domains become `url_host` +
+/// `email_domain` rules so a session on a client's site/domain resolves at rung 1 immediately.
+public struct EntityBootstrap: Sendable {
+    public init() {}
+    @discardableResult
+    public func run(_ db: AppDatabase, now: Int64) throws -> Int {
+        var count = 0
+        for c in try db.companies() {
+            guard let domain = c.domain?.lowercased(), !domain.isEmpty else { continue }
+            for type in ["url_host", "email_domain"] {
+                try db.insertSignalIfAbsent(EntitySignal(
+                    signalType: type, signalValue: domain, clientId: c.id,
+                    provenance: "bootstrapped", createdAt: now, updatedAt: now))
+                count += 1
+            }
+        }
+        return count
+    }
+}
+
+/// Classifies all unclassified sessions for a day and strengthens the matched signals.
+public struct DayClassifier: Sendable {
+    public init() {}
+    @discardableResult
+    public func run(_ db: AppDatabase, from: Int64, to: Int64, now: Int64) throws -> (classified: Int, unresolved: Int) {
+        let classifier = try Classifier.load(db)
+        var classified = 0, unresolved = 0
+        for s in try db.sessions(from: from, to: to) {
+            guard let id = s.id, s.clientId == nil else { continue }
+            let invitees = (s.kind == "meeting" ? s.sourceRef.flatMap { try? db.invitees(meetingId: $0) } : nil) ?? []
+            if let c = classifier.classify(s, invitees: invitees) {
+                try db.classifySession(id: id, clientId: c.clientId, projectId: c.projectId, taskId: c.taskId,
+                                       confidence: c.confidence, rung: c.rung, rationale: c.rationale, classifiedAt: now)
+                if let v = c.matchedSignalValue {
+                    // Re-touch the rule so confirmed patterns rise in weight over time.
+                    try? db.strengthenSignal(type: "url_host", value: v, clientId: c.clientId,
+                                             projectId: c.projectId, provenance: "inferred", now: now)
+                }
+                classified += 1
+            } else {
+                unresolved += 1
+            }
+        }
+        return (classified, unresolved)
+    }
+}
+
+/// Records a user's recap action into `decisions` and feeds the learning loop: a reassignment
+/// creates/strengthens a **user-confirmed** signal (which outranks inferred ones forever).
+public struct DecisionRecorder: Sendable {
+    private let db: AppDatabase
+    private let clock: TidyClock
+    public init(db: AppDatabase, clock: TidyClock = SystemClock()) { self.db = db; self.clock = clock }
+
+    public struct SignalRef: Sendable { public let type: String; public let value: String
+        public init(type: String, value: String) { self.type = type; self.value = value } }
+
+    @discardableResult
+    public func record(suggestionId: Int64?, action: String, clientId: String? = nil,
+                       projectId: String? = nil, taskId: String? = nil, note: String? = nil,
+                       confirmSignal: SignalRef? = nil) throws -> Int64 {
+        let now = Int64(clock.now.timeIntervalSince1970)
+        let decisionId = try db.insertDecision(Decision(
+            suggestionId: suggestionId, action: action, clientId: clientId, projectId: projectId,
+            taskId: taskId, note: note, createdAt: now))
+        if let sig = confirmSignal, let clientId {
+            try db.strengthenSignal(type: sig.type, value: sig.value, clientId: clientId,
+                                    projectId: projectId, provenance: "user_confirmed", now: now)
+        }
+        if let suggestionId {
+            try db.updateSuggestionStatus(id: suggestionId, status: Self.status(for: action), now: now)
+        }
+        return decisionId
+    }
+
+    static func status(for action: String) -> String {
+        switch action {
+        case "accept", "log": return "logged"
+        case "edit": return "edited"
+        case "reassign": return "reassigned"
+        case "toss": return "tossed"
+        case "snooze": return "snoozed"
+        default: return "pending"
+        }
+    }
+}
+
+/// Generates ask-once resolution questions for recurring unresolved web hosts.
+public struct ResolutionQuestionGenerator: Sendable {
+    public let minOccurrences: Int
+    public init(minOccurrences: Int = 2) { self.minOccurrences = minOccurrences }
+
+    @discardableResult
+    public func generate(_ db: AppDatabase, from: Int64, to: Int64, now: Int64) throws -> Int {
+        var hostCounts: [String: Int] = [:]
+        for s in try db.sessions(from: from, to: to) where s.clientId == nil {
+            if let ck = s.contextKey, ck.hasPrefix("web:") {
+                hostCounts[String(ck.dropFirst(4)), default: 0] += 1
+            }
+        }
+        var created = 0
+        for (host, count) in hostCounts where count >= minOccurrences {
+            try db.upsertQuestion(ResolutionQuestion(
+                question: "Which client is \(host)?", signalType: "url_host", signalValue: host, createdAt: now))
+            created += 1
+        }
+        return created
+    }
+}
+
+/// The sensitivity gate (guardrail G2). Fails closed: any configured term found → sensitive, and
+/// the content must NOT be sent to a cloud model. Runs before rungs 3–4 and note generation.
+public struct SensitivityGate: Sendable {
+    public let terms: [String]
+    public init(terms: [String]) { self.terms = terms.map { $0.lowercased() }.filter { !$0.isEmpty } }
+    public init(config: Config) { self.init(terms: config.sensitivity.allTerms) }
+
+    public func isSensitive(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return terms.contains { lower.contains($0) }
+    }
+    /// nil when sensitive (block cloud send); otherwise the text.
+    public func gated(_ text: String) -> String? { isSensitive(text) ? nil : text }
+}
