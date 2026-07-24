@@ -246,6 +246,44 @@ describes.
 
 ---
 
+## Phase 6 — Intelligence
+
+### 2026-07-24 · AIRouter: the single metered call site (G2 + G5)
+- **Fixed order, never reordered:** sensitivity gate → resolve route → budget check → record
+  outbound payload → provider call → write `ai_calls` row. There is **no** code path to a provider
+  that skips the gate or the ledger.
+- **G2:** sensitive `userPrompt`/`systemPrompt` → `refused_sensitive` ledger row, provider **not
+  called**, and the content is **never** handed to `OutboundPayloadRecorder`. `AIRouterTests`
+  seeds "PIP"/"salary" and asserts they appear in **no** recorded payload — this is the phase's G2
+  acceptance test.
+- **G5:** every outcome writes a row (`ok`/`error`/`refused_sensitive`/`refused_budget`). Budget is
+  checked **before** dispatch against today's `ai_calls` spend (per-provider + global); over cap →
+  `refused_budget` (local-only). Cost computed from the config price table.
+
+### 2026-07-24 · Providers
+- **Fireworks** = OpenAI-compatible `/chat/completions` with `response_format: json_schema` when a
+  schema is supplied; usage → tokens. **Anthropic** = `/messages`; the structured-output request
+  shape is a ⚠️ build-time check, so we pass any schema **inside the system prompt** and read the
+  text back rather than gambling on `output_config`. Both reuse TidyIngest's `HTTPClient`.
+- **Apple on-device** (`AppleOnDeviceProvider`) IS wired to the real Foundation Models API —
+  `SystemLanguageModel.default.availability == .available`, `LanguageModelSession(instructions:)`,
+  `session.respond(to:).content`. It **compiles against the shipped macOS 26 SDK** and is
+  runtime-gated (`#available(macOS 26.0)` + availability check); on an older OS / Apple Intelligence
+  off it throws, and the router treats that as fall-through. Token counts aren't exposed → 0 (it's
+  free anyway). Guided generation with `@Generable` is the remaining refinement (build-time).
+
+### 2026-07-24 · Dependency deviation + misc
+- **TidyAI now depends on TidyIngest + TidyUnderstand** (not just Core+Store as the module-map drew):
+  it reuses the `HTTPClient`/`Backoff` layer for cloud calls and the `SensitivityGate`. Still acyclic
+  (TidyAI→TidyIngest/TidyUnderstand→Store/Core). Recorded so the map can be updated.
+- `Config.AI` gained a `budget` block (`daily_cap_usd`, `global_daily_cap_usd`) — it had been
+  omitted in Phase 0 and is needed by `BudgetPolicy`.
+- `NudgeEngine` is a pure decision (meeting-aware, quiet-hours wrap, daily cap, sustained-block,
+  already-logged, dismissal-backoff that raises the confidence bar then mutes). Dashboard aggregates
+  `ai_calls` (spend by job/provider, escalation rate, on-device share) + CSV export.
+
+---
+
 ## Phase 4 — Slack
 
 ### 2026-07-23 · Slack ingest shape

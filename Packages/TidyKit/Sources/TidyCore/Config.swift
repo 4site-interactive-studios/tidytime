@@ -350,13 +350,15 @@ public struct Config: Codable, Sendable, Equatable {
         public var routing: [String: String]
         public var models: [String: ModelConfig]
         public var pricesUsdPerMtok: [String: Price]
+        public var budget: Budget
         public init(enabled: Bool = true, routing: [String: String] = [:],
-                    models: [String: ModelConfig] = [:], pricesUsdPerMtok: [String: Price] = [:]) {
+                    models: [String: ModelConfig] = [:], pricesUsdPerMtok: [String: Price] = [:],
+                    budget: Budget = .init()) {
             self.enabled = enabled; self.routing = routing; self.models = models
-            self.pricesUsdPerMtok = pricesUsdPerMtok
+            self.pricesUsdPerMtok = pricesUsdPerMtok; self.budget = budget
         }
         enum CodingKeys: String, CodingKey {
-            case enabled, routing, models, pricesUsdPerMtok = "prices_usd_per_mtok"
+            case enabled, routing, models, pricesUsdPerMtok = "prices_usd_per_mtok", budget
         }
         public init(from d: Decoder) throws {
             let c = try d.container(keyedBy: CodingKeys.self); let z = AI()
@@ -364,6 +366,23 @@ public struct Config: Codable, Sendable, Equatable {
             routing = try c.decodeIfPresent([String: String].self, forKey: .routing) ?? z.routing
             models = try c.decodeIfPresent([String: ModelConfig].self, forKey: .models) ?? z.models
             pricesUsdPerMtok = try c.decodeIfPresent([String: Price].self, forKey: .pricesUsdPerMtok) ?? z.pricesUsdPerMtok
+            budget = try c.decodeIfPresent(Budget.self, forKey: .budget) ?? z.budget
+        }
+
+        public struct Budget: Codable, Sendable, Equatable {
+            public var dailyCapUsd: [String: Double]
+            public var globalDailyCapUsd: Double?
+            public init(dailyCapUsd: [String: Double] = [:], globalDailyCapUsd: Double? = nil) {
+                self.dailyCapUsd = dailyCapUsd; self.globalDailyCapUsd = globalDailyCapUsd
+            }
+            enum CodingKeys: String, CodingKey {
+                case dailyCapUsd = "daily_cap_usd", globalDailyCapUsd = "global_daily_cap_usd"
+            }
+            public init(from d: Decoder) throws {
+                let c = try d.container(keyedBy: CodingKeys.self); let z = Budget()
+                dailyCapUsd = try c.decodeIfPresent([String: Double].self, forKey: .dailyCapUsd) ?? z.dailyCapUsd
+                globalDailyCapUsd = try c.decodeIfPresent(Double.self, forKey: .globalDailyCapUsd) ?? z.globalDailyCapUsd
+            }
         }
 
         public struct ModelConfig: Codable, Sendable, Equatable {

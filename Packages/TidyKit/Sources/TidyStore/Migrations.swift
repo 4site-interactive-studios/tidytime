@@ -16,6 +16,7 @@ public enum Migrations {
         registerV1Meetings(&m)
         registerV1Slack(&m)
         registerV1Understand(&m)
+        registerV1AI(&m)
         return m
     }
 
@@ -330,6 +331,36 @@ public enum Migrations {
                 t.column("ai_cost_usd", .double).notNull().defaults(to: 0)
                 t.column("created_at", .integer).notNull()
                 t.column("updated_at", .integer).notNull()
+            }
+        }
+    }
+
+    private static func registerV1AI(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v1-ai") { db in
+            try db.create(table: "ai_calls") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("occurred_at", .integer).notNull().indexed()
+                t.column("job_type", .text).notNull()
+                t.column("provider", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("input_tokens", .integer).notNull().defaults(to: 0)
+                t.column("output_tokens", .integer).notNull().defaults(to: 0)
+                t.column("cost_usd", .double).notNull().defaults(to: 0)
+                t.column("latency_ms", .integer)
+                t.column("outcome", .text).notNull()
+                t.column("request_ref", .text)
+                t.column("error", .text)
+            }
+            try db.create(indexOn: "ai_calls", columns: ["provider", "model"])
+            try db.create(table: "nudges") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("fired_at", .integer).notNull().indexed()
+                t.column("context_key", .text).notNull().indexed()
+                t.column("client_id", .text)
+                t.column("session_id", .integer)
+                t.column("suggestion_id", .integer)
+                t.column("outcome", .text)
+                t.column("responded_at", .integer)
             }
         }
     }

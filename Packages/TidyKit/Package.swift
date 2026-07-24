@@ -37,7 +37,9 @@ let package = Package(
         // NOT depend on the TidyAI target — keeps the graph acyclic and Phase 5 buildable
         // before Phase 6 exists.
         .target(name: "TidyUnderstand", dependencies: ["TidyCore", "TidyStore"], exclude: ["README.md"]),
-        .target(name: "TidyAI", dependencies: ["TidyCore", "TidyStore"], exclude: ["README.md"]),
+        // TidyAI reuses TidyIngest's HTTP layer (HTTPClient/Backoff) for the cloud providers rather
+        // than duplicating it, and depends on TidyUnderstand for the SensitivityGate. Still acyclic.
+        .target(name: "TidyAI", dependencies: ["TidyCore", "TidyStore", "TidyIngest", "TidyUnderstand"], exclude: ["README.md"]),
         .target(name: "TidySuggest", dependencies: ["TidyCore", "TidyStore", "TidyUnderstand", "TidyAI"], exclude: ["README.md"]),
         .target(name: "TidySurface", dependencies: ["TidyCore", "TidyStore", "TidySuggest"], exclude: ["README.md"]),
         .testTarget(
