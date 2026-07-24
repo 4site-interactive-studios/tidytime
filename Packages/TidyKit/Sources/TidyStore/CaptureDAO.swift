@@ -38,6 +38,17 @@ extension AppDatabase {
         try writer.write { db in var s = snapshot; try s.insert(db); return s.id! }
     }
 
+    /// Page-snapshot texts captured within a time window (newest first, capped) — lexical evidence
+    /// for classifying a session (rungs 1–2 are local, so no gate needed here).
+    public func pageTexts(from start: Int64, to end: Int64, limit: Int = 3) throws -> [String] {
+        try writer.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT text FROM page_snapshots WHERE captured_at >= ? AND captured_at < ?
+                ORDER BY captured_at DESC LIMIT ?
+                """, arguments: [start, end, limit])
+        }
+    }
+
     /// Most recent snapshot hash for a URL, used to skip storing duplicate page text.
     public func latestSnapshotHash(url: String) throws -> String? {
         try writer.read { db in

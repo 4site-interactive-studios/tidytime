@@ -23,9 +23,11 @@ public struct SessionBuildJob: Sendable {
             let fallbackEnd = idx + 1 < sorted.count ? sorted[idx + 1].startedAt : now
             let end = s.endedAt ?? fallbackEnd
             let context = ContextKey.derive(isBrowser: s.isBrowser, url: s.url, appBundleId: s.appBundleId)
+            let grouping = ContextKey.grouping(isBrowser: s.isBrowser, url: s.url,
+                                               appBundleId: s.appBundleId, windowTitle: s.windowTitle)
             out.append(SampleSlice(
                 id: id, start: s.startedAt, end: max(s.startedAt, end),
-                contextKey: context, appBundleId: s.appBundleId, title: s.windowTitle))
+                contextKey: context, groupingKey: grouping, appBundleId: s.appBundleId, title: s.windowTitle))
         }
         return out
     }

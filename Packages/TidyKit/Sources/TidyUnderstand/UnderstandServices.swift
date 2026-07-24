@@ -32,7 +32,9 @@ public struct DayClassifier: Sendable {
         for s in try db.sessions(from: from, to: to) {
             guard let id = s.id, s.clientId == nil else { continue }
             let invitees = (s.kind == "meeting" ? s.sourceRef.flatMap { try? db.invitees(meetingId: $0) } : nil) ?? []
-            if let c = classifier.classify(s, invitees: invitees) {
+            // Page text captured during the session feeds rung-2 lexical (local; no gate needed).
+            let pageTexts = (s.kind == "screen" ? try? db.pageTexts(from: s.startedAt, to: s.endedAt, limit: 3) : nil) ?? []
+            if let c = classifier.classify(s, invitees: invitees, pageTexts: pageTexts) {
                 try db.classifySession(id: id, clientId: c.clientId, projectId: c.projectId, taskId: c.taskId,
                                        confidence: c.confidence, rung: c.rung, rationale: c.rationale, classifiedAt: now)
                 if let v = c.matchedSignalValue, let t = c.matchedSignalType {

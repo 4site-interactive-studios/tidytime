@@ -357,6 +357,28 @@ structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 13
   a separate Anthropic key); enabling it is a one-line routing change. That direct path is the only
   way to get Claude/Fable-grade adjudication if it's ever required.
 
+### Finer within-app attribution (2026-07-24)
+- **Goal:** make each switched-to context (chat 1 vs Cowork vs a project, all inside one Claude
+  window) land on the right client/project — not just be *counted* as a switch.
+- **Two-level context key** (`ContextKey`): `derive` stays **coarse** (`web:host` / `app:bundle`) and
+  is what's stored in `sessions.context_key` + used by rung-1 domain rules; new `grouping` adds a
+  **normalized window/tab title** discriminator (`app:bundle#tidytime build`). The `Sessionizer` now
+  groups by the fine `groupingKey` (via a new `SampleSlice.groupingKey`, defaulting to `contextKey`
+  so existing behavior/tests are unchanged), while the session still stores the coarse key. Net: a
+  within-app title change forms a **distinct session** that can attribute independently.
+- **Title normalization** strips a leading unread badge like `(3) ` (so a changing count doesn't
+  fragment the session), lowercases, collapses whitespace, truncates. Over-fineness is absorbed by
+  the min-session floor / pooling / ask-once.
+- **Page text into classification:** `DayClassifier` now fetches `page_snapshots` within a session's
+  window (`db.pageTexts(from:to:limit:)`) and passes them to the classifier's rung-2 lexical (which
+  already accepted `pageTexts` but was being handed `[]`). Local-only — rungs 1–2 don't hit the cloud,
+  so no sensitivity gate needed here. A generic-title session now attributes via its page content.
+- Tested: `FinerAttributionTests` (grouping split, two clients from two titles in one app, page-text
+  attribution) + `GroupingKeyTests`. 141 → 147 tests.
+- **Still coarse by design:** rung-1 domain rules key on host/bundle (a client's site resolves the
+  same on any page); the *title/page-text* (rung 2) is what disambiguates which project within a tool
+  like Claude. The `context_switches` metric remains independent (raw samples, finest granularity).
+
 ---
 
 ## Phase 4 — Slack

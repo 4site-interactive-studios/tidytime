@@ -23,11 +23,11 @@ public struct Sessionizer: Sendable {
             i += 1
             while i < sorted.count {
                 let seg = sorted[i]
-                if seg.contextKey == run.contextKey {
+                if seg.groupingKey == run.groupingKey {
                     run.extend(with: seg)
                     i += 1
                 } else if Int(seg.end - seg.start) < detourTolerance,
-                          i + 1 < sorted.count, sorted[i + 1].contextKey == run.contextKey {
+                          i + 1 < sorted.count, sorted[i + 1].groupingKey == run.groupingKey {
                     // Brief detour bounded by the same context on both sides → absorb both.
                     run.extend(with: seg)
                     run.extend(with: sorted[i + 1])
@@ -46,7 +46,8 @@ public struct Sessionizer: Sendable {
 
     /// Internal accumulator: tracks span, sample ids, per-app duration (for `primaryApp`), last title.
     private struct Run {
-        let contextKey: String
+        let groupingKey: String   // what we group by (fine)
+        let contextKey: String    // what we store on the session (coarse)
         var start: Int64
         var end: Int64
         var sampleIds: [Int64] = []
@@ -54,6 +55,7 @@ public struct Sessionizer: Sendable {
         var lastTitle: String?
 
         init(_ s: SampleSlice) {
+            groupingKey = s.groupingKey
             contextKey = s.contextKey
             start = s.start
             end = s.end

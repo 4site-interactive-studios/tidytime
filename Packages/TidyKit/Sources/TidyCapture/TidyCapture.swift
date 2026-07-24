@@ -31,12 +31,17 @@ public struct SampleSlice: Sendable, Equatable {
     public var id: Int64
     public var start: Int64
     public var end: Int64
+    /// Coarse key (`web:host` / `app:bundle`) — carried onto the session for rung-1 domain rules.
     public var contextKey: String
+    /// Fine key used for GROUPING (coarse + normalized title). Defaults to `contextKey`.
+    public var groupingKey: String
     public var appBundleId: String
     public var title: String?
-    public init(id: Int64, start: Int64, end: Int64, contextKey: String, appBundleId: String, title: String? = nil) {
+    public init(id: Int64, start: Int64, end: Int64, contextKey: String, groupingKey: String? = nil,
+                appBundleId: String, title: String? = nil) {
         self.id = id; self.start = start; self.end = end
-        self.contextKey = contextKey; self.appBundleId = appBundleId; self.title = title
+        self.contextKey = contextKey; self.groupingKey = groupingKey ?? contextKey
+        self.appBundleId = appBundleId; self.title = title
     }
 }
 
