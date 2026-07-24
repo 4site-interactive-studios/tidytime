@@ -28,6 +28,8 @@
   "capture": {
     "browser": "chrome",
     "heartbeat_seconds": 30,
+    "detection_interval_seconds": 1.0,
+    "content_interval_seconds": 20.0,
     "idle_threshold_seconds": 600,
     "page_text_max_bytes": 4096,
     "kill_switches": {

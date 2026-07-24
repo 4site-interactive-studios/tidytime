@@ -340,6 +340,8 @@ tolerance lives under the separate `sessionization` block, since the Sessionizer
   "capture": {
     "browser": "chrome",
     "heartbeat_seconds": 30,
+    "detection_interval_seconds": 1.0,
+    "content_interval_seconds": 20.0,
     "idle_threshold_seconds": 600,
     "page_text_max_bytes": 4096,
     "kill_switches": {
@@ -356,6 +358,16 @@ tolerance lives under the separate `sessionization` block, since the Sessionizer
   }
 }
 ```
+
+**Tiered capture (`CaptureCoordinator`).** Two change-gated cadences replace a single heartbeat:
+a fast **detection** poll (`detection_interval_seconds`, default 1s, + on every app-activation event)
+reads app + window title + browser active-tab URL/title and records a new `activity_samples` row
+**only when the `(app, window_title, url)` signature changes** — so a within-app switch (chat→chat,
+tab→tab) yields a distinct sample the instant the title/URL differs, while sitting still stays one
+open sample. A slow **content** poll (`content_interval_seconds`, default 20s, + once on a browser
+change) does the expensive `document.body.innerText` capture, deduped by hash. (`heartbeat_seconds`
+is legacy.) The `min_session_seconds` floor still drops sub-minute runs as noise, and distinguishing
+two views within an app requires the app's title/AX to actually differ.
 
 Semantics: a `kill_switches` flag set `false` disables that source cleanly — e.g. `chrome: false`
 stops the Chrome adapter (no URL/title sampling and no `page_snapshots`); the ingest switches

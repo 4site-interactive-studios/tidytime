@@ -166,19 +166,28 @@ public struct Config: Codable, Sendable, Equatable {
 
     public struct Capture: Codable, Sendable, Equatable {
         public var browser: String
-        public var heartbeatSeconds: Int
+        public var heartbeatSeconds: Int   // legacy; superseded by content_interval_seconds
+        /// Fast change-detection poll (app + window title + browser active tab). Fractional seconds.
+        public var detectionIntervalSeconds: Double
+        /// Slow, expensive poll for page text (document.body.innerText). Fractional seconds.
+        public var contentIntervalSeconds: Double
         public var idleThresholdSeconds: Int
         public var pageTextMaxBytes: Int
         public var killSwitches: KillSwitches
         public init(browser: String = "chrome", heartbeatSeconds: Int = 30,
+                    detectionIntervalSeconds: Double = 1.0, contentIntervalSeconds: Double = 20.0,
                     idleThresholdSeconds: Int = 600, pageTextMaxBytes: Int = 4096,
                     killSwitches: KillSwitches = .init()) {
             self.browser = browser; self.heartbeatSeconds = heartbeatSeconds
+            self.detectionIntervalSeconds = detectionIntervalSeconds
+            self.contentIntervalSeconds = contentIntervalSeconds
             self.idleThresholdSeconds = idleThresholdSeconds; self.pageTextMaxBytes = pageTextMaxBytes
             self.killSwitches = killSwitches
         }
         enum CodingKeys: String, CodingKey {
             case browser, heartbeatSeconds = "heartbeat_seconds"
+            case detectionIntervalSeconds = "detection_interval_seconds"
+            case contentIntervalSeconds = "content_interval_seconds"
             case idleThresholdSeconds = "idle_threshold_seconds", pageTextMaxBytes = "page_text_max_bytes"
             case killSwitches = "kill_switches"
         }
@@ -186,6 +195,8 @@ public struct Config: Codable, Sendable, Equatable {
             let c = try d.container(keyedBy: CodingKeys.self); let z = Capture()
             browser = try c.decodeIfPresent(String.self, forKey: .browser) ?? z.browser
             heartbeatSeconds = try c.decodeIfPresent(Int.self, forKey: .heartbeatSeconds) ?? z.heartbeatSeconds
+            detectionIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .detectionIntervalSeconds) ?? z.detectionIntervalSeconds
+            contentIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .contentIntervalSeconds) ?? z.contentIntervalSeconds
             idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? z.idleThresholdSeconds
             pageTextMaxBytes = try c.decodeIfPresent(Int.self, forKey: .pageTextMaxBytes) ?? z.pageTextMaxBytes
             killSwitches = try c.decodeIfPresent(KillSwitches.self, forKey: .killSwitches) ?? z.killSwitches

@@ -308,6 +308,32 @@ structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 13
 
 ---
 
+## Post-v1 enhancement — tiered heartbeat (2026-07-24)
+
+### Tiered, change-gated capture for sub-app granularity
+- **Problem:** the original design sampled on app-**activation** events + a single 30s heartbeat.
+  Switching *within* one app (chat 1 → chat 2 in Claude, or tab → tab in Chrome) fires no OS event,
+  so it was only visible at heartbeat resolution and merged into one block.
+- **Fix:** `CaptureCoordinator` (TidyCapture) runs two cadences, both **change-gated**:
+  - **detection tick** (`poll`, fast — default 1s + on every app-activation): reads frontmost app +
+    window title, and for a browser the active-tab URL/title (cheap). Records a NEW `activity_samples`
+    row **only when the signature `(app, windowTitle, url)` changes** — so idle polling doesn't bloat
+    the DB, but a within-app title/tab switch creates a distinct sample the instant it differs.
+  - **content tick** (`captureContent`, slow — default 20s + once on a browser change): the expensive
+    `document.body.innerText` capture, deduped by content hash.
+- **Config:** added fractional `capture.detection_interval_seconds` (Double, default 1.0) and
+  `capture.content_interval_seconds` (Double, default 20.0). `heartbeat_seconds` (Int) kept as a
+  legacy field. The two-timer live wiring is `LiveCaptureController` (compile-only); the coordinator
+  logic is fully tested (`CaptureCoordinatorTests`, incl. the within-app title-change case). 135 tests.
+- **Known limits (documented, not fixed here):** (1) `min_session_seconds` (60s) still drops
+  sub-minute runs as noise, so per-chat blocks under a minute won't survive unless that floor is
+  lowered; (2) distinguishing chat 1 vs chat 2 still requires the app's **window title/AX to actually
+  differ**; (3) at sub-second intervals the AX/AppleScript reads should move off the main thread with
+  a timeout (noted in `LiveCaptureController`). For true event-accuracy without polling, an
+  `AXObserver` on focus/title-change notifications is the better long-term path.
+
+---
+
 ## Phase 4 — Slack
 
 ### 2026-07-23 · Slack ingest shape

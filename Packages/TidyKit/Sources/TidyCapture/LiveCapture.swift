@@ -3,6 +3,8 @@
 // strategy). All logic they feed (Sessionizer, SampleRecorder, PageTextPolicy, AwayGapDetector) is
 // tested separately with fakes.
 import Foundation
+import TidyCore
+import TidyStore
 
 public enum KnownApps {
     public static let chrome = "com.google.Chrome"
@@ -202,6 +204,55 @@ public final class PowerObserver {
         onGap(AwayGapDraft(
             start: Int64(start.timeIntervalSince1970), end: Int64(end.timeIntervalSince1970),
             durationSeconds: Int(end.timeIntervalSince(start)), cause: cause))
+    }
+}
+
+/// Wires the tiered `CaptureCoordinator` to real timers + the app-activation event. App switches
+/// fire the fast poll instantly; the detection timer catches within-app title/tab changes; the
+/// content timer does the slow page-text capture.
+///
+/// NOTE for a production hardening pass: at sub-second detection intervals the AX/AppleScript reads
+/// should run off the main thread with a short timeout so an unresponsive app can't stall the poller
+/// (see DECISIONS.md, tiered heartbeat). This wiring uses a main-run-loop Timer for clarity.
+@MainActor
+public final class LiveCaptureController {
+    private let coordinator: CaptureCoordinator
+    private let detectionInterval: TimeInterval
+    private let contentInterval: TimeInterval
+    private var detectionTimer: Timer?
+    private var contentTimer: Timer?
+    private var activationToken: NSObjectProtocol?
+
+    public init(db: AppDatabase, config: Config) {
+        let reader = FrontmostReader(browserBundleIds: [KnownApps.chrome])
+        let browser: BrowserAdapter? = config.capture.browser == "chrome" ? ChromeAdapter() : nil
+        let recorder = SampleRecorder(db: db, policy: PageTextPolicy(maxBytes: config.capture.pageTextMaxBytes),
+                                      browserName: config.capture.browser)
+        self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder)
+        self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
+        self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
+    }
+
+    public func start() {
+        let nc = NSWorkspace.shared.notificationCenter
+        activationToken = nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                         object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { _ = try? self?.coordinator.poll() }
+        }
+        detectionTimer = Timer.scheduledTimer(withTimeInterval: detectionInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { _ = try? self?.coordinator.poll() }
+        }
+        contentTimer = Timer.scheduledTimer(withTimeInterval: contentInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { try? self?.coordinator.captureContent() }
+        }
+        try? coordinator.poll()
+    }
+
+    public func stop() {
+        detectionTimer?.invalidate(); detectionTimer = nil
+        contentTimer?.invalidate(); contentTimer = nil
+        if let activationToken { NSWorkspace.shared.notificationCenter.removeObserver(activationToken) }
+        activationToken = nil
     }
 }
 #endif

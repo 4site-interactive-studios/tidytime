@@ -52,3 +52,15 @@ public struct FakeFrontmost: FrontmostReading {
     public init(_ value: FrontmostContext?) { self.value = value }
     public func current() -> FrontmostContext? { value }
 }
+
+/// Reference-type frontmost fake whose value can change between polls (for CaptureCoordinator tests).
+public final class MutableFrontmostReader: FrontmostReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: FrontmostContext?
+    public init(_ value: FrontmostContext? = nil) { _value = value }
+    public var value: FrontmostContext? {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); _value = newValue; lock.unlock() }
+    }
+    public func current() -> FrontmostContext? { value }
+}
