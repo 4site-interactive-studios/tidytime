@@ -14,6 +14,23 @@ later phase builds on.
 
 ---
 
+## Status: as built (2026-07-23)
+
+> ✅ **Code-complete + unit-tested** (`swift test`, 24 tests, ~75% line coverage). The Phase-0
+> *scope that this repo re-defined as "test & debug infrastructure"* shipped: `Config`+loader,
+> `SecretStore` (Keychain + in-memory), `Redactor`, dual-sink structured logging (`os.Logger` +
+> rotating JSONL), the diagnostic-bundle assembler + clipboard seam, GRDB `AppDatabase` with the
+> `v1-core` migration, and the `installId`/metadata plumbing. Full write-up:
+> [../retrospectives/phase-0.md](../retrospectives/phase-0.md).
+>
+> ⚠️ **Manual acceptance (needs a real Mac + Xcode):** the literal "icon in the menu bar, survives
+> reboot, doctor view shows status" criterion requires `xcodegen` + `xcodebuild` + a signed build
+> and a running app — it cannot be proven by the automated suite in a headless session. Run
+> `make bootstrap && make run` on the target Mac (after setting `DEVELOPMENT_TEAM`). `xcodegen` is
+> not installed in the build environment; `make bootstrap` installs it via Homebrew.
+
+---
+
 ## Scope (in / out)
 
 **In:**
