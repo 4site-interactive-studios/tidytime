@@ -14,6 +14,7 @@ public enum Migrations {
         registerV1Capture(&m)
         registerV1Productive(&m)
         registerV1Meetings(&m)
+        registerV1Slack(&m)
         return m
     }
 
@@ -213,6 +214,27 @@ public enum Migrations {
                 t.column("text", .text).notNull()
             }
             try db.create(indexOn: "transcript_utterances", columns: ["meeting_id", "idx"])
+        }
+    }
+
+    private static func registerV1Slack(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v1-slack") { db in
+            try db.create(table: "slack_messages") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("conversation_id", .text).notNull().indexed()
+                t.column("conversation_type", .text).notNull()
+                t.column("conversation_name", .text)
+                t.column("ts", .text).notNull()
+                t.column("posted_at", .integer).notNull().indexed()
+                t.column("user_id", .text)
+                t.column("user_name", .text)
+                t.column("is_self", .integer).notNull().defaults(to: 0)
+                t.column("thread_ts", .text)
+                t.column("text", .text)
+                t.column("permalink", .text)
+                t.column("fetched_at", .integer).notNull()
+                t.uniqueKey(["conversation_id", "ts"])
+            }
         }
     }
 }

@@ -105,9 +105,21 @@ final class RetentionTests: XCTestCase {
 
     func testSkipsUnknownOrAbsentTables() throws {
         let db = try AppDatabase.inMemory()
-        // slack_messages doesn't exist yet (Phase 4); retention must skip it silently.
-        let deleted = try RetentionJob().purge(db, retentionDays: ["slack_messages": 90], now: Date())
-        XCTAssertNil(deleted["slack_messages"])
+        // A table with no configured timestamp column (and/or not present) is skipped silently.
+        let deleted = try RetentionJob().purge(db, retentionDays: ["not_a_real_table": 90], now: Date())
+        XCTAssertNil(deleted["not_a_real_table"])
+    }
+
+    func testPurgesSlackMessagesByPostedAt() throws {
+        let db = try AppDatabase.inMemory()
+        let now = Date(timeIntervalSince1970: 100 * 86_400)
+        try db.upsertSlackMessages([
+            SlackMessage(conversationId: "C1", conversationType: "channel", ts: "1", postedAt: Int64(5 * 86_400), fetchedAt: 0),  // old
+            SlackMessage(conversationId: "C1", conversationType: "channel", ts: "2", postedAt: Int64(99 * 86_400), fetchedAt: 0), // recent
+        ])
+        let deleted = try RetentionJob().purge(db, retentionDays: ["slack_messages": 90], now: now)
+        XCTAssertEqual(deleted["slack_messages"], 1)
+        XCTAssertEqual(try db.tableRowCounts()["slack_messages"], 1)
     }
 }
 

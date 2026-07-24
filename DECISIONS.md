@@ -201,3 +201,28 @@ describes.
 ### 2026-07-23 · Away-prompt data path
 - The away prompt is UI (Phase 6 surface), but its data operations exist now: `resolveAwayGap`
   (attribution + optional client/project) and `unresolvedAwayGaps`. Tested.
+
+---
+
+## Phase 4 — Slack
+
+### 2026-07-23 · Slack ingest shape
+- Read-only via an internal app's **user token** (Bearer). `slack_messages` is `UNIQUE(conversation_id,
+  ts)`; upsert = `insert(onConflict: .replace)`. Conversation type derived from
+  `is_im`/`is_mpim`/`is_private`/`is_channel`. `is_self` = message `user` == `auth.test` user id
+  (this is what catches phone-sent Slack). Cursor = latest `ts` per conversation in
+  `sync_state("slack:<id>")`, passed as `oldest`. The **internal-app exemption** from the May-2025
+  rate limits is a ⚠️ build-time check.
+
+### 2026-07-23 · SlackSessionizer + idempotent rebuild
+- Messages cluster into `kind='slack'` sessions, split when the gap exceeds `gapSeconds` (default
+  15 min). A single-message cluster gets a `nominalSeconds` duration (default 60) so drive-by help
+  isn't zero-length. Re-sync deletes a conversation's slack sessions (`source_ref`) and rebuilds
+  from **all** stored messages — idempotent.
+
+### 2026-07-23 · LESSON: retention target tables accumulate across phases
+- `RetentionTests.testSkipsUnknownOrAbsentTables` (written in Phase 1) broke when Phase 4 added
+  `slack_messages` — it's now a real retention target, so purging it returns `0`, not `nil`. Fixed
+  by testing skip-logic against a **truly nonexistent** table name and adding a positive
+  slack-purge test. **Lesson:** when a phase adds a table listed in
+  `RetentionJob.timestampColumns`, expect earlier "absent table" assumptions to change.
