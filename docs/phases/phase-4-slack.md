@@ -19,6 +19,18 @@ timeline, attributed to the right conversations and ready to seed micro-work poo
 
 ---
 
+
+## Status: as built (2026-07-23)
+
+> ✅ **Logic complete + unit-tested** (81 tests total). Shipped: `v1-slack` migration + record/
+> DAO (idempotent upsert, latest-ts cursor), `LiveSlackClient` (auth.test, users.list,
+> conversations.list/history, cursor paging), `SlackTS`, `SlackSessionizer`, and `SlackSync`
+> (`is_self` detection, idempotent session rebuild). Full write-up:
+> [../retrospectives/phase-4.md](../retrospectives/phase-4.md).
+>
+> ⚠️ **Manual/build-time checks:** internal-app rate-limit exemption, exact user-token scopes at
+> manifest time, and that a morning of real Slack activity (incl. phone-sent) attributes correctly.
+
 ## 0. At a glance
 
 | | |

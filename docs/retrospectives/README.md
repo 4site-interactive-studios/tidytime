@@ -8,3 +8,4 @@ next phase. Paired with a planning-doc update so the phase docs stay honest.
 - [Phase 1 — Capture](phase-1.md)
 - [Phase 2 — Productive mirror](phase-2.md)
 - [Phase 3 — Meetings & calendar](phase-3.md)
+- [Phase 4 — Slack](phase-4.md)
