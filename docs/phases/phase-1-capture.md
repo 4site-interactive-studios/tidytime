@@ -14,6 +14,22 @@ every later phase has real history to get smarter against.
 
 ---
 
+## Status: as built (2026-07-23)
+
+> ✅ **Logic complete + unit-tested** (46 tests total, 73.9% line coverage). Shipped: the
+> `v1-capture` migration + records/DAOs, `ContextKey`, `PageTextPolicy` (truncate + sha256 dedup),
+> `Sessionizer` (detour absorption + min-session drop), `AwayGapDetector`, `SampleRecorder`,
+> `SessionBuildJob`, and `RetentionJob`. Live OS adapters (`ChromeAdapter`, `FrontmostReader` via
+> NSWorkspace+Accessibility, `AppWatcher`, `IdleReader`, `PowerObserver`) are compile-checked behind
+> `#if canImport(AppKit)`. Full write-up: [../retrospectives/phase-1.md](../retrospectives/phase-1.md).
+>
+> ⚠️ **Manual acceptance (needs a running app + TCC grants):** the "full workday reads back as a
+> coherent session timeline, quiet CPU, no gaps across sleep/lock" criterion requires the live
+> watchers on a real Mac. The samples→timeline transform is tested with synthetic data; the live
+> watchers producing faithful samples is unproven in a headless session.
+
+---
+
 ## Scope (in / out)
 
 **In:**
