@@ -19,6 +19,20 @@ with copy buttons) plus morning catch-up, ask-once resolution questions, and rec
 
 ---
 
+
+## Status: as built (2026-07-24)
+
+> ✅ **Logic complete + unit-tested** (98 tests total). Shipped: `v1-understand` migration +
+> records/DAOs, `Classifier` (rung 1 signal rules + rung 2 lexical with ambiguity guard),
+> `EntityBootstrap`, `DayClassifier`, `DecisionRecorder` (learning), `ResolutionQuestionGenerator`,
+> the `SensitivityGate` (G2), `RoundingPolicy`, `SuggestionEngine` (standalone/pool/new-task + gap
+> analysis), and `RecapAssembler`. `RecapView` (SwiftUI) is compile-only. Full write-up:
+> [../retrospectives/phase-5.md](../retrospectives/phase-5.md).
+>
+> ⚠️ **Manual acceptance:** reconciling a real day in <10 min and a forgotten billable block reaching
+> Productive needs the live app + real data. The classify→suggest→recap pipeline is tested with
+> synthetic sessions; the recap window UX and copy-paste loop are unproven headlessly.
+
 ## 0. At a glance
 
 | | |
