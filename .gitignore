@@ -1,0 +1,35 @@
+# --- Secrets & machine-local config (NEVER commit — guardrail G6) ---
+config.json
+Local.xcconfig
+# NOTE: do NOT use a bare `secrets*` here — under macOS's case-insensitive git matching it also
+# ignores source files like SecretStore.swift ("secretstore" begins with "secrets"). Be specific:
+secrets.json
+secrets.yaml
+secrets.txt
+.secrets/
+*.pem
+*.p12
+
+# --- Generated Xcode project (produced by XcodeGen) ---
+TidyTime.xcodeproj/
+
+# --- Build output ---
+.build/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# --- App runtime data / local database (never commit user data) ---
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+outbound-payloads*.log
+*.log
+
+# --- macOS ---
+.DS_Store
+
+# --- SwiftPM local caches ---
+.swiftpm/xcode/

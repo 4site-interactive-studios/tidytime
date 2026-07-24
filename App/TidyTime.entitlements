@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- v1 runs NON-sandboxed on purpose: it drives the Accessibility API against other apps,
+         sends Apple Events to Chrome, and reads/writes ~/Library/Application Support. The App
+         Sandbox would block these and offers little for a personal, non-App-Store tool.
+         (Deliberate; see docs/decisions and docs/build/signing-and-tcc.md.)
+
+         Hardened Runtime is ON (project.yml), so sending Apple Events requires this entitlement: -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

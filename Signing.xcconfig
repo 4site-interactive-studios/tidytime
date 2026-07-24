@@ -1,0 +1,11 @@
+// Signing.xcconfig — committed. Keeps a STABLE code signature so macOS does not revoke
+// Accessibility/Automation (TCC) grants on rebuild. See docs/build/signing-and-tcc.md (G7).
+//
+// The optional include below pulls in your machine-local team id without committing it.
+#include? "Local.xcconfig"
+
+CODE_SIGN_STYLE = Automatic
+PRODUCT_BUNDLE_IDENTIFIER = com.4site.TidyTime
+
+// DEVELOPMENT_TEAM is provided by Local.xcconfig (copy Local.xcconfig.example → Local.xcconfig).
+// A free Apple ID "Personal Team" works — no paid Apple Developer account required.

@@ -1,0 +1,65 @@
+# XcodeGen spec — generates TidyTime.xcodeproj (gitignored). Run `make generate`.
+# Structure & rationale: docs/build/xcodegen-spec.md
+name: TidyTime
+
+options:
+  bundleIdPrefix: com.4site
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+configs:
+  Debug: debug
+  Release: release
+
+# Signing pulled from Signing.xcconfig, which optionally includes a gitignored Local.xcconfig
+# holding DEVELOPMENT_TEAM. This keeps a STABLE signature so TCC grants survive rebuilds (G7).
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    PRODUCT_BUNDLE_IDENTIFIER: com.4site.TidyTime
+
+packages:
+  TidyKit:
+    path: Packages/TidyKit
+
+targets:
+  TidyTime:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    settings:
+      base:
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/TidyTime.entitlements
+        PRODUCT_NAME: TidyTime
+    dependencies:
+      - package: TidyKit
+        products:
+          - TidyCore
+          - TidyStore
+          - TidyCapture
+          - TidyIngest
+          - TidyUnderstand
+          - TidyAI
+          - TidySuggest
+          - TidySurface
+
+schemes:
+  TidyTime:
+    build:
+      targets:
+        TidyTime: all
+    run:
+      config: Debug
+    test:
+      config: Debug

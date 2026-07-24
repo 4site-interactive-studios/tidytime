@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>TidyTime</string>
+    <key>CFBundleDisplayName</key>
+    <string>TidyTime</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+
+    <!-- Menu bar agent: no Dock icon, no main window. -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <!-- Automation (Apple Events) into Chrome + System Events. Shown in the TCC prompt. -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>TidyTime reads the active browser tab's URL, title, and visible text, and checks meeting state, to reconstruct how you spent your day. It never types, clicks, or controls other apps, and it never writes anything back.</string>
+
+    <!-- No Screen Recording usage is declared (guardrail G3): window titles come from the
+         Accessibility API, not CGWindowList. Accessibility is granted via System Settings and
+         needs no Info.plist key. -->
+
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 4Site Studios</string>
+</dict>
+</plist>

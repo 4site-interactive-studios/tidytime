@@ -1,0 +1,7 @@
+// Copy this file to `Local.xcconfig` (which is gitignored) and set your team id.
+//
+// Find your Personal Team id in Xcode → Settings → Accounts → (your Apple ID) → the team
+// row, or run:  xcodebuild -showBuildSettings | grep DEVELOPMENT_TEAM  after one manual
+// signing in Xcode. A free Apple ID gives you a "Personal Team" — that is enough for a
+// locally-run app; no paid Apple Developer Program membership is needed for TidyTime v1.
+DEVELOPMENT_TEAM = XXXXXXXXXX

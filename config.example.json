@@ -1,0 +1,124 @@
+{
+  "_about": "Copy to config.json (gitignored). This file holds NON-SECRET settings only. All tokens/keys live in the macOS Keychain (guardrail G6). Values below are v1 defaults; edit in the app's Settings.",
+  "_build_time_checks": [
+    "productive.task_deep_link_pattern — capture the real pattern from the Productive web app (Phase 2).",
+    "ai.models.*.model — confirm exact model slugs at the provider (Fireworks catalog churns; Phase 6).",
+    "ai.prices_usd_per_mtok — confirm live pricing when accounts are created; Claude prices left null until set."
+  ],
+
+  "organization": {
+    "productive_organization_id": "REPLACE_WITH_ORG_ID",
+    "productive_person_id": "resolved_at_setup",
+    "timezone": "America/New_York"
+  },
+
+  "productive": {
+    "base_url": "https://api.productive.io/api/v2/",
+    "task_deep_link_pattern": "https://app.productive.io/{org}/task/{task_id}",
+    "sync_interval_seconds": 900
+  },
+
+  "google": {
+    "client_id": "REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "calendar_id": "primary",
+    "scopes": ["https://www.googleapis.com/auth/calendar.readonly"],
+    "internal_domains": ["4sitestudios.com"]
+  },
+
+  "capture": {
+    "browser": "chrome",
+    "heartbeat_seconds": 30,
+    "idle_threshold_seconds": 600,
+    "page_text_max_bytes": 4096,
+    "kill_switches": {
+      "app_watcher": true,
+      "chrome": true,
+      "calendar": true,
+      "fathom": true,
+      "slack": true
+    }
+  },
+
+  "sessionization": {
+    "detour_tolerance_seconds": 120,
+    "min_session_seconds": 60
+  },
+
+  "suggestions": {
+    "increment_minutes": 15,
+    "round_up_bias": 0.4,
+    "standalone_threshold_minutes": 15
+  },
+
+  "recap": {
+    "time": "17:00",
+    "morning_catchup": true
+  },
+
+  "nudges": {
+    "enabled": true,
+    "sustained_block_minutes": 25,
+    "confidence_threshold": 0.7,
+    "daily_cap": 5,
+    "quiet_hours": { "start": "18:00", "end": "09:00" }
+  },
+
+  "sensitivity": {
+    "keywords": [
+      "salary", "compensation", "raise", "bonus", "PIP", "performance review",
+      "termination", "fired", "layoff", "severance", "offer letter",
+      "lawsuit", "settlement", "legal counsel", "confidential", "HR complaint"
+    ],
+    "flagged_people": [],
+    "flagged_terms": []
+  },
+
+  "retention_days": {
+    "activity_samples": 90,
+    "page_snapshots": 90,
+    "slack_messages": 90,
+    "transcript_utterances": 90
+  },
+
+  "ingest": {
+    "fathom": { "poll_interval_seconds": 600 },
+    "google_calendar": { "poll_interval_seconds": 300 },
+    "slack": { "conversation_list_interval_seconds": 300, "history_interval_seconds": 180 }
+  },
+
+  "ai": {
+    "enabled": true,
+    "on_device": { "enabled": true },
+    "routing": {
+      "session_batch": "fireworks-economy",
+      "transcript_split": "fireworks-economy",
+      "note_draft": "fireworks-economy",
+      "escalation": "anthropic-claude"
+    },
+    "models": {
+      "fireworks-economy": {
+        "provider": "fireworks",
+        "model": "accounts/fireworks/models/kimi-k2p6",
+        "endpoint": "https://api.fireworks.ai/inference/v1"
+      },
+      "anthropic-claude": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "endpoint": "https://api.anthropic.com/v1"
+      }
+    },
+    "prices_usd_per_mtok": {
+      "accounts/fireworks/models/kimi-k2p6": { "input": 0.95, "output": 4.00 },
+      "claude-opus-4-8": { "input": null, "output": null }
+    },
+    "budget": {
+      "daily_cap_usd": { "fireworks": 2.00, "anthropic": 2.00 },
+      "global_daily_cap_usd": 3.00
+    },
+    "calibration": {
+      "initial_sample_rate": 0.10,
+      "decay_after_days": 21,
+      "floor_sample_rate": 0.02
+    }
+  }
+}
