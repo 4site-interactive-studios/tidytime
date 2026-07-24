@@ -17,6 +17,7 @@ public enum Migrations {
         registerV1Slack(&m)
         registerV1Understand(&m)
         registerV1AI(&m)
+        registerV2ContextSwitches(&m)
         return m
     }
 
@@ -361,6 +362,17 @@ public enum Migrations {
                 t.column("suggestion_id", .integer)
                 t.column("outcome", .text)
                 t.column("responded_at", .integer)
+            }
+        }
+    }
+
+    // Post-v1: persist context-switch metrics on daily_rollups for trend tracking.
+    private static func registerV2ContextSwitches(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v2-context-switches") { db in
+            try db.alter(table: "daily_rollups") { t in
+                t.add(column: "context_switches", .integer).notNull().defaults(to: 0)
+                t.add(column: "brief_switches", .integer).notNull().defaults(to: 0)
+                t.add(column: "longest_focus_seconds", .integer).notNull().defaults(to: 0)
             }
         }
     }

@@ -12,6 +12,8 @@ public struct RecapDay: Sendable, Equatable {
     public let observedSeconds: Int
     public let attributedSeconds: Int
     public let loggedMinutes: Int
+    /// How fragmented the day was — switches, dwell, thrash (from raw samples, not sessions).
+    public let contextSwitches: ContextSwitchMetrics
     /// % of observed time that got attributed to a client (capture health).
     public var attributionRate: Double {
         observedSeconds > 0 ? Double(attributedSeconds) / Double(observedSeconds) : 0
@@ -35,10 +37,13 @@ public struct RecapAssembler: Sendable {
         if let personId = selfPersonId {
             logged = ((try? db.timeEntries(personId: personId, date: day)) ?? []).reduce(0) { $0 + $1.timeMinutes }
         }
+        // Context switching is computed from RAW samples so sub-minute thrash still counts.
+        let now = Int64(clock.now.timeIntervalSince1970)
+        let switches = ContextSwitchAnalyzer().analyze(try db.samples(from: from, to: to), now: now)
         return RecapDay(
             day: day, timeline: sessions, suggestions: try db.suggestions(day: day),
             questions: try db.openQuestions(), observedSeconds: observed,
-            attributedSeconds: attributed, loggedMinutes: logged)
+            attributedSeconds: attributed, loggedMinutes: logged, contextSwitches: switches)
     }
 
     /// Persist the day's rollup metrics (dashboard input).
@@ -48,8 +53,11 @@ public struct RecapAssembler: Sendable {
         let now = Int64(clock.now.timeIntervalSince1970)
         let rollup = DailyRollup(
             day: day, observedSeconds: recap.observedSeconds, attributedSeconds: recap.attributedSeconds,
-            loggedMinutes: recap.loggedMinutes,
-            captureHealth: recap.attributionRate, createdAt: now, updatedAt: now)
+            loggedMinutes: recap.loggedMinutes, captureHealth: recap.attributionRate,
+            contextSwitches: recap.contextSwitches.switchCount,
+            briefSwitches: recap.contextSwitches.briefSwitches,
+            longestFocusSeconds: recap.contextSwitches.longestFocusSeconds,
+            createdAt: now, updatedAt: now)
         try db.upsertRollup(rollup)
         return rollup
     }

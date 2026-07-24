@@ -332,6 +332,31 @@ structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 13
   a timeout (noted in `LiveCaptureController`). For true event-accuracy without polling, an
   `AXObserver` on focus/title-change notifications is the better long-term path.
 
+### Context-switching metric (2026-07-24)
+- **Why:** agentic AI tools (many chats / Cowork / Claude Code + IDE + terminal + Slack) drive a lot
+  of context switching; the user wants it quantified.
+- **Key design:** `ContextSwitchAnalyzer` (TidyStore) computes from the **raw `activity_samples`
+  stream**, NOT from `sessions`. This deliberately sidesteps the `min_session_seconds` (60s) floor —
+  billing/attribution keeps filtering sub-minute noise, while the metric counts **every** switch,
+  including the thrash. So we did NOT lower the noise floor; the two concerns read different data.
+- **Signature = `(app, window_title, url)`** (same fine key the tiered coordinator records on), so
+  within-app switches (chat→chat) count. Metrics: switch count, switches/active-hour, mean/median
+  dwell, brief-switch count + fragmentation (%< 2min), unique contexts, longest focus.
+- **Surfaced + persisted:** `RecapDay.contextSwitches` (on-demand) and a `v2-context-switches`
+  migration adding `context_switches` / `brief_switches` / `longest_focus_seconds` to `daily_rollups`
+  for trend history. Shown in `RecapView`. Tested (`ContextSwitchTests`, incl. within-app thrash).
+
+### AI routing: everything through Fireworks (2026-07-24)
+- **Decision:** ALL cloud inference — economy *and* escalation — routes through **Fireworks AI**
+  (one vendor, one key, one ledger). Config-only change (`ai.routing.escalation` → a Fireworks
+  model); the router already resolves job→model→provider from config, so **no code change**.
+- **Honest caveat** (baked into config `_build_time_checks`): Anthropic's Claude/**Fable** are
+  proprietary and **not served on Fireworks**, so the escalation rung uses a stronger **open-weight**
+  model on Fireworks (DeepSeek-V3 placeholder — pick the best adjudicator at build time), NOT Claude.
+  The `anthropic-claude` entry + `AnthropicProvider` remain as an **optional direct-API path** (needs
+  a separate Anthropic key); enabling it is a one-line routing change. That direct path is the only
+  way to get Claude/Fable-grade adjudication if it's ever required.
+
 ---
 
 ## Phase 4 — Slack

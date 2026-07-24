@@ -3,7 +3,8 @@
   "_build_time_checks": [
     "productive.task_deep_link_pattern — capture the real pattern from the Productive web app (Phase 2).",
     "ai.models.*.model — confirm exact model slugs at the provider (Fireworks catalog churns; Phase 6).",
-    "ai.prices_usd_per_mtok — confirm live pricing when accounts are created; Claude prices left null until set."
+    "ai.prices_usd_per_mtok — confirm live pricing when accounts are created; Claude prices left null until set.",
+    "ai routing: ALL cloud inference (economy AND escalation) goes through Fireworks AI — one vendor, one key, one ledger. NOTE: Anthropic's Claude/Fable are proprietary and NOT served on Fireworks, so the escalation rung uses a stronger OPEN-WEIGHT model on Fireworks (deepseek-v3 placeholder — confirm/choose the best available adjudicator). The 'anthropic-claude' model entry remains as an OPTIONAL direct-API path (needs a separate Anthropic key); it is not the default and requires only a routing change to enable."
   ],
 
   "organization": {
@@ -95,12 +96,17 @@
       "session_batch": "fireworks-economy",
       "transcript_split": "fireworks-economy",
       "note_draft": "fireworks-economy",
-      "escalation": "anthropic-claude"
+      "escalation": "fireworks-escalation"
     },
     "models": {
       "fireworks-economy": {
         "provider": "fireworks",
         "model": "accounts/fireworks/models/kimi-k2p6",
+        "endpoint": "https://api.fireworks.ai/inference/v1"
+      },
+      "fireworks-escalation": {
+        "provider": "fireworks",
+        "model": "accounts/fireworks/models/deepseek-v3",
         "endpoint": "https://api.fireworks.ai/inference/v1"
       },
       "anthropic-claude": {
@@ -111,6 +117,7 @@
     },
     "prices_usd_per_mtok": {
       "accounts/fireworks/models/kimi-k2p6": { "input": 0.95, "output": 4.00 },
+      "accounts/fireworks/models/deepseek-v3": { "input": 0.90, "output": 0.90 },
       "claude-opus-4-8": { "input": null, "output": null }
     },
     "budget": {

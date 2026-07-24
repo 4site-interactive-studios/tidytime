@@ -35,9 +35,12 @@ public struct RecapView: View {
     private var header: some View {
         let observedMin = recap.observedSeconds / 60
         let attributedPct = Int((recap.attributionRate * 100).rounded())
+        let cs = recap.contextSwitches
         return VStack(alignment: .leading, spacing: 2) {
             Text("Recap — \(recap.day)").font(.title2).bold()
             Text("\(observedMin) min observed · \(attributedPct)% attributed · \(recap.loggedMinutes) min already logged")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("\(cs.switchCount) context switches · \(String(format: "%.1f", cs.switchesPerActiveHour))/hr · \(Int(cs.fragmentation * 100))% brief · longest focus \(cs.longestFocusSeconds / 60)m")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

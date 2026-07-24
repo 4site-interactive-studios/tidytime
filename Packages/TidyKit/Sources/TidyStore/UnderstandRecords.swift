@@ -174,15 +174,21 @@ public struct DailyRollup: Codable, FetchableRecord, MutablePersistableRecord, S
     public var perClientJson: String
     public var captureHealth: Double?
     public var aiCostUsd: Double
+    public var contextSwitches: Int
+    public var briefSwitches: Int
+    public var longestFocusSeconds: Int
     public var createdAt: Int64
     public var updatedAt: Int64
     public init(id: Int64? = nil, day: String, observedSeconds: Int = 0, attributedSeconds: Int = 0,
                 loggedMinutes: Int = 0, billableMinutes: Int = 0, internalMinutes: Int = 0,
                 perClientJson: String = "{}", captureHealth: Double? = nil, aiCostUsd: Double = 0,
+                contextSwitches: Int = 0, briefSwitches: Int = 0, longestFocusSeconds: Int = 0,
                 createdAt: Int64, updatedAt: Int64) {
         self.id = id; self.day = day; self.observedSeconds = observedSeconds; self.attributedSeconds = attributedSeconds
         self.loggedMinutes = loggedMinutes; self.billableMinutes = billableMinutes; self.internalMinutes = internalMinutes
         self.perClientJson = perClientJson; self.captureHealth = captureHealth; self.aiCostUsd = aiCostUsd
+        self.contextSwitches = contextSwitches; self.briefSwitches = briefSwitches
+        self.longestFocusSeconds = longestFocusSeconds
         self.createdAt = createdAt; self.updatedAt = updatedAt
     }
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
@@ -190,6 +196,8 @@ public struct DailyRollup: Codable, FetchableRecord, MutablePersistableRecord, S
         case id, day, observedSeconds = "observed_seconds", attributedSeconds = "attributed_seconds"
         case loggedMinutes = "logged_minutes", billableMinutes = "billable_minutes", internalMinutes = "internal_minutes"
         case perClientJson = "per_client_json", captureHealth = "capture_health", aiCostUsd = "ai_cost_usd"
+        case contextSwitches = "context_switches", briefSwitches = "brief_switches"
+        case longestFocusSeconds = "longest_focus_seconds"
         case createdAt = "created_at", updatedAt = "updated_at"
     }
 }
