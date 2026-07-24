@@ -89,3 +89,44 @@ describes.
   each later phase appends its own migration (`v1-capture`, `v1-productive`, …). We do NOT enable
   `eraseDatabaseOnSchemaChange` (it would drop user data). Domain tables land in their phase, not
   up front, matching docs/architecture/data-model.md's phase map.
+
+---
+
+## Phase 1 — Capture
+
+### 2026-07-23 · Sessionization algorithm & context keys
+- **Context key** (`ContextKey.derive`): a browser sample keys on `web:<host>` (host lowercased,
+  `www.` stripped); everything else keys on `app:<bundleId>`. This is the unit sessionization
+  groups by and that entity resolution (Phase 5) will map to clients.
+- **Sessionizer:** builds runs of one context, **absorbing a brief detour** only when it is shorter
+  than `detour_tolerance_seconds` AND bounded by the same context on both sides (a real "glance
+  away and come back"). Runs shorter than `min_session_seconds` are **dropped** — that sub-threshold
+  time is recovered later as micro-work pools (Phase 5), not lost to a session row. `primaryApp` is
+  the app with the most in-run duration. Deterministic; no clock dependency in the core.
+
+### 2026-07-23 · Retention semantics
+- **`RetentionJob.purge`** deletes rows **strictly older** than the window (`ts < now - days*86400`).
+  A row exactly at the boundary is kept (a test initially failed by seeding a row at exactly 90d —
+  the logic was right, the test data was off-by-one). `page_snapshots` cascade-delete with their
+  `activity_samples` (FK `ON DELETE CASCADE`). Tables not yet created in earlier phases are skipped
+  silently (checked against `sqlite_master`).
+
+### 2026-07-23 · Cross-phase FK columns created without REFERENCES
+- `sessions`/`away_gaps` carry `client_id`/`project_id`/`task_id`, which reference `pd_*` tables that
+  don't exist until Phase 2. The `v1-capture` migration creates these as **plain columns** (no
+  `REFERENCES` clause) so migration order stays valid. This matches data-model.md's note.
+
+### 2026-07-23 · Live capture is compile-only; a runtime trap avoided in IdleReader
+- `LiveCapture.swift` (ChromeAdapter via NSAppleScript, FrontmostReader via NSWorkspace+AX,
+  AppWatcher, IdleReader, PowerObserver) is `#if canImport(AppKit)` and compile-checked but not
+  unit-tested (needs a running app + TCC grants). Its logic is exercised via fakes elsewhere.
+- **Bug avoided:** the common idle idiom `CGEventSource.secondsSinceLastEventType(_, CGEventType(rawValue: ~0)!)`
+  force-unwraps an **invalid** `CGEventType` case and would **trap at runtime** on a real Mac (it
+  only compiles). `IdleReader` instead takes the **min across concrete event types** (mouseMoved,
+  keyDown, scrollWheel, …). Future workers: do not "simplify" back to the any-event raw value.
+
+### 2026-07-23 · Swift 6 concurrency in notification observers
+- `NSWorkspace`/`DistributedNotificationCenter` observer closures are `@Sendable`. Capturing a
+  non-Sendable `() -> Void` helper closure inside them errors ("sending 'action' risks data races").
+  Fix: inline each observer and capture only `[weak self]` (a `@MainActor` class is Sendable), then
+  `MainActor.assumeIsolated { ... }` inside. Applied in `PowerObserver`.
