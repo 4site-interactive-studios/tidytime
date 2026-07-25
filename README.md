@@ -14,13 +14,15 @@ back. It's built for *backfill*, not stopwatch discipline: capture everything pa
 attribute afterward, and at end of day (or first thing the next morning) reconcile a whole day
 in a few minutes instead of an end-of-week archaeology session.
 
-> **Status: library complete; app shell not yet wired.**
+> **Status: code complete; never run.**
 > All seven phases (0–6) of logic ship as tested SwiftPM targets under `Packages/TidyKit`
 > — **184 unit tests, 0 failures**, ~82% line coverage — covering capture, the read-only Productive
 > mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, and the
-> metered AI router. The macOS app target in `App/` is **still the Phase-0 placeholder**: it renders
-> a static menu-bar item and does not yet host those modules, so `make run` launches a shell, not the
-> product. Live OS/TCC, OAuth, and cloud paths are compile-only here and verified manually on a Mac.
+> metered AI router. The macOS app in `App/` now **hosts** those modules (menu bar popover, recap,
+> dashboard, settings, doctor) and type-checks against the real SDK (`make typecheck-app`) — but it
+> has **never been launched**: `xcodebuild` on the development machine needs
+> `sudo xcodebuild -runFirstLaunch` first, so no `.app` or `.dmg` has been produced yet. Live
+> OS/TCC, OAuth, and cloud paths are verified manually on a Mac.
 > Start at **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
 > [docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md).
 
