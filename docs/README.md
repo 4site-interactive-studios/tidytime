@@ -73,6 +73,7 @@ Index: [decisions/README.md](decisions/README.md).
 
 | Doc | Covers |
 |---|---|
+| [RUNNING.md](RUNNING.md) | **Start here to run it** — what was built + the end-to-end runbook |
 | [guardrails.md](guardrails.md) | The safety invariants and their enforcement |
 | [permissions-setup.md](permissions-setup.md) | The one-time human setup checklist |
 | [glossary.md](glossary.md) | Domain terms (Productive, EN/ENgrid, Fathom, session, pool, rung…) |

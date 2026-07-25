@@ -1,5 +1,5 @@
 # TidyTime — terminal-drivable build. Everything Claude Code needs runs from here.
-.PHONY: bootstrap generate build run test package-test doctor lint clean
+.PHONY: bootstrap generate build run test coverage doctor lint clean
 
 PROJECT := TidyTime.xcodeproj
 SCHEME  := TidyTime
