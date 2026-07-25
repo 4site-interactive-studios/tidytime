@@ -134,6 +134,15 @@ extension AppDatabase {
             var r = rollup; try r.insert(db)
         }
     }
+    /// Rollups across an inclusive day range ("YYYY-MM-DD"), oldest first — the dashboard's input.
+    public func rollups(from startDay: String, to endDay: String) throws -> [DailyRollup] {
+        try writer.read { db in
+            try DailyRollup
+                .filter(sql: "day >= ? AND day <= ?", arguments: [startDay, endDay])
+                .order(sql: "day ASC").fetchAll(db)
+        }
+    }
+
     public func rollup(day: String) throws -> DailyRollup? {
         try writer.read { db in try DailyRollup.filter(sql: "day = ?", arguments: [day]).fetchOne(db) }
     }

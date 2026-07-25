@@ -39,6 +39,14 @@ public struct SessionBuildJob: Sendable {
         sessionizer.sessions(from: slices(from: samples, now: now))
     }
 
+    /// Idempotent variant for the running app: delete this window's screen sessions, then rebuild.
+    /// `run` appends, which duplicates when called repeatedly on a live day.
+    @discardableResult
+    public func rebuild(_ db: AppDatabase, from start: Int64, to end: Int64, now: Int64) throws -> Int {
+        try db.deleteScreenSessions(from: start, to: end)
+        return try run(db, from: start, to: end, now: now)
+    }
+
     /// Read samples in [start, end), build sessions, and persist them. Returns count written.
     @discardableResult
     public func run(_ db: AppDatabase, from start: Int64, to end: Int64, now: Int64) throws -> Int {

@@ -1,5 +1,5 @@
 # TidyTime — terminal-drivable build. Everything Claude Code needs runs from here.
-.PHONY: bootstrap generate build run test coverage doctor lint clean
+.PHONY: bootstrap generate build run test coverage typecheck-app dmg doctor lint clean
 
 PROJECT := TidyTime.xcodeproj
 SCHEME  := TidyTime
@@ -32,6 +32,14 @@ test:
 ## coverage: run tests with coverage and print a per-file report for our Sources
 coverage:
 	@bash scripts/coverage.sh
+
+## typecheck-app: compile-check App/ against the SDK without xcodebuild (see script header)
+typecheck-app:
+	@bash scripts/typecheck-app.sh
+
+## dmg: build a Release app and package it as dist/TidyTime.dmg (see docs/RUNNING.md)
+dmg:
+	@bash scripts/make-dmg.sh
 
 ## doctor: print the on-disk locations; run the app's built-in doctor view for live TCC status
 doctor:

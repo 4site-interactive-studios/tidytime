@@ -1,24 +1,125 @@
-// TidyTimeApp — the thin app shell. Phase 0 fleshes this out: dependency container,
-// DB open + migrations, config + Keychain plumbing, SMAppService launch-at-login, the
-// permission prompts, and the `doctor` debug view. See docs/phases/phase-0-skeleton.md.
+// TidyTime — app shell. Deliberately thin: it constructs `AppEnvironment` (which opens the DB,
+// runs migrations, loads config, wires the Keychain + file logger and drives the pipeline) and
+// hosts the SwiftUI surfaces from TidySurface. All logic lives in the TidyKit package so it stays
+// unit-testable; this file is the part that can only be verified by running it.
+//
+// See docs/RUNNING.md and docs/architecture/module-map.md.
 import SwiftUI
 import AppKit
+import ServiceManagement
+import TidyCore
+import TidySurface
 
 @main
 struct TidyTimeApp: App {
+    @StateObject private var launcher = AppLauncher()
+
     var body: some Scene {
-        MenuBarExtra("TidyTime", systemImage: "clock.badge.checkmark") {
-            // Placeholder popover. Phase 0 replaces with: today so far (observed vs. logged),
-            // pending suggestion count, pause capture, open recap.
-            Text("TidyTime")
-                .font(.headline)
-                .padding(.bottom, 4)
-            Text("Skeleton build — see docs/phases/phase-0-skeleton.md")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Divider()
-            Button("Quit TidyTime") { NSApplication.shared.terminate(nil) }
+        MenuBarExtra {
+            switch launcher.state {
+            case .starting:
+                Text("Starting…").padding(12)
+            case .failed(let message):
+                StartupFailureView(message: message)
+            case .ready(let env):
+                MenuBarPopover(env: env) { window in
+                    launcher.open(window, env: env)
+                }
+            }
+        } label: {
+            Image(systemName: launcher.menuBarSymbol)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Owns startup (which can fail) and window presentation. `MenuBarExtra` has no `openWindow` for
+/// auxiliary panels in a menu-bar-only app, so windows are managed with AppKit directly.
+@MainActor
+final class AppLauncher: ObservableObject {
+    enum State {
+        case starting
+        case failed(String)
+        case ready(AppEnvironment)
+    }
+
+    @Published private(set) var state: State = .starting
+    private var windows: [AppWindow: NSWindow] = [:]
+
+    init() {
+        do {
+            let env = try AppEnvironment()
+            state = .ready(env)
+            env.startCapture()
+            registerLaunchAtLogin()
+        } catch {
+            state = .failed("\(error)")
+        }
+    }
+
+    var menuBarSymbol: String {
+        switch state {
+        case .starting: return "clock"
+        case .failed: return "exclamationmark.triangle"
+        case .ready(let env):
+            switch env.status {
+            case .capturing: return "clock.badge.checkmark"
+            case .paused, .idle: return "clock.badge.xmark"
+            case .attention: return "exclamationmark.triangle"
+            }
+        }
+    }
+
+    /// Launch at login via SMAppService (no helper tool, no launchd plist — guardrail G8).
+    private func registerLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+        } catch {
+            // Non-fatal: the app still runs, it just won't auto-start.
+            NSLog("TidyTime: launch-at-login registration failed: \(error)")
+        }
+    }
+
+    func open(_ window: AppWindow, env: AppEnvironment) {
+        if let existing = windows[window] {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let root: AnyView
+        switch window {
+        case .recap:
+            try? env.refreshToday()
+            root = AnyView(RecapWindow(env: env))
+        case .dashboard: root = AnyView(DashboardView(env: env))
+        case .settings:  root = AnyView(SettingsView(env: env))
+        case .doctor:    root = AnyView(DoctorView(env: env))
+        }
+        let hosting = NSHostingController(rootView: root)
+        let win = NSWindow(contentViewController: hosting)
+        win.title = "TidyTime — \(window.title)"
+        win.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        win.setContentSize(NSSize(width: 900, height: 620))
+        win.center()
+        win.isReleasedWhenClosed = false
+        windows[window] = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Shown when the database or support directory can't be opened — better than a half-working app.
+struct StartupFailureView: View {
+    let message: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TidyTime couldn't start").font(.headline)
+            Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            Text("Check that ~/Library/Application Support/TidyTime is writable, then relaunch.")
+                .font(.caption)
+            Button("Quit") { NSApplication.shared.terminate(nil) }
+        }
+        .padding(14)
+        .frame(width: 340)
     }
 }

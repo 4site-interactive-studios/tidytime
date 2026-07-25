@@ -419,6 +419,53 @@ the instrument was trusted. Fixes:
   output to itself) with a concrete expected value (R2-04).
 - 152 → **184 tests**, 0 failures. Coverage 82.16% line on `Sources/`.
 
+---
+
+## App wiring + dmg (2026-07-25)
+
+### The app shell now actually hosts TidyKit
+- `App/TidyTimeApp.swift` was a placeholder for the whole build (every retrospective flagged it).
+  It now constructs **`AppEnvironment`** (TidySurface) → opens the DB + migrations, loads config,
+  wires `KeychainSecretStore` + `FileLogSink`, starts `LiveCaptureController`, and runs the local
+  pipeline (`SessionBuildJob.rebuild` → `DayClassifier` → `RecapAssembler` → `RetentionJob`) on a
+  5-minute timer. Launch-at-login via `SMAppService` (no helper, no launchd plist — **G8**).
+- **`AppEnvironment` lives in TidySurface, not `App/`** — inside the SwiftPM package it can be
+  compiled and partly tested; the app target stays a thin `@main` that only does what can't be
+  tested headlessly (window management, `@main`, SMAppService).
+- Full surface added: `MenuBarPopover`, `RecapWindow` (live wrapper over the pure `RecapView`,
+  wiring actions → `decisions` + `suggestions.status`), `DashboardView`, `SettingsView`,
+  `DoctorView`, `AwayPromptView` + `AwayGapResolver`, `NudgePresenter`.
+- **`SessionBuildJob.rebuild`** was added because `run` *appends* — calling it repeatedly on a live
+  day duplicated sessions. `rebuild` deletes the window's `kind='screen'` sessions first, leaving
+  meeting/slack sessions (owned by their own sync jobs) alone.
+- `PermissionInspector` reports TCC status **without prompting** (`AXIsProcessTrusted`,
+  `AEDeterminePermissionToAutomateTarget(..., askUserIfNeeded: false)`); prompting is a separate,
+  explicit button. Screen Recording is never inspected or requested (**G3**).
+- Swift 6 note: `kAXTrustedCheckOptionPrompt` is a global `var` and is **not** concurrency-safe to
+  reference; use the literal `"AXTrustedCheckOptionPrompt"` key instead.
+
+### BLOCKER for a future worker: xcodebuild is broken on this machine (not the project)
+- `xcodebuild` fails before compiling anything with:
+  `DVTPlugInLoading: Failed to load code for plug-in com.apple.dt.IDESimulatorFoundation …
+   Symbol not found: …DVTDownloads…`
+- **Cause:** `/Library/Developer/PrivateFrameworks/DVTDownloads.framework` is dated **Jan 20 2026**
+  — a stale *system* component from an older Xcode — while the installed Xcode is 26.6.
+- **Fix (needs the user's password, so an agent cannot run it):** `sudo xcodebuild -runFirstLaunch`.
+- **Workaround that proves the code is fine:** `make typecheck-app` /
+  `scripts/typecheck-app.sh` type-checks `App/*.swift` with `swiftc -typecheck -parse-as-library`
+  against the real SDK and the built TidyKit `.swiftmodule`s, bypassing xcodebuild's plugin loader.
+  It passes. (Two gotchas baked into the script: pass GRDB's `GRDBSQLite` module.modulemap via
+  `-Xcc -fmodule-map-file=…`, and `-parse-as-library` or a single-file compile rejects `@main`.)
+- So: the app-shell code **compiles**; producing an actual `.app`/`.dmg` still needs a working
+  xcodebuild + a `DEVELOPMENT_TEAM`. `make dmg` (`scripts/make-dmg.sh`) is written and refuses
+  early with a clear message if `Local.xcconfig` is missing. It is **unrun**.
+
+### dmg packaging
+- `scripts/make-dmg.sh`: xcodegen → `xcodebuild -configuration Release` → stage app + an
+  `/Applications` symlink → `hdiutil create -format UDZO`. Unsigned-by-Apple (no paid account), so
+  first launch needs right-click → Open or `xattr -d com.apple.quarantine`. Documented in the script
+  output itself, not just in a doc.
+
 ### Finer within-app attribution (2026-07-24)
 - **Goal:** make each switched-to context (chat 1 vs Cowork vs a project, all inside one Claude
   window) land on the right client/project — not just be *counted* as a switch.

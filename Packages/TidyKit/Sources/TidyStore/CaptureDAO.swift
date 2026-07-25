@@ -79,6 +79,15 @@ extension AppDatabase {
         try writer.write { db in var s = session; try s.insert(db); return s.id! }
     }
 
+    /// Remove `kind='screen'` sessions in a window so the builder can rebuild them idempotently.
+    /// Meeting/Slack sessions are owned by their own sync jobs and are left alone.
+    public func deleteScreenSessions(from start: Int64, to end: Int64) throws {
+        try writer.write { db in
+            try db.execute(sql: "DELETE FROM sessions WHERE kind = 'screen' AND started_at >= ? AND started_at < ?",
+                           arguments: [start, end])
+        }
+    }
+
     public func sessions(from start: Int64, to end: Int64) throws -> [Session] {
         try writer.read { db in
             try Session
