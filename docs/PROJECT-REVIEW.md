@@ -7,6 +7,8 @@
 | 1 | 2026-07-24 | everything up to `034e6b8` | 3 | 12, all fixed | 117 → 130 |
 | 2 | 2026-07-25 | `034e6b8..dcffdac` (post-review delta + the never-reviewed site commit) | 4 | 52; HIGH/MED fixed | 152 → 184 |
 
+> **Unreviewed at HEAD:** the app-shell wiring (`b5db65a`) landed *after* round 2 and has not been independently reviewed — by the rule below, it is unreviewed by definition.
+
 > **Current as of `46db539`.** Round 2 covers the four post-review enhancements *and* the companion
 > site, which round 1 predated. See [How this doc stays honest](#how-this-doc-stays-honest).
 
@@ -95,10 +97,14 @@ probes** — all four reviewers caught their probe, so their other findings were
 
 A hardcoded number rots; an auditable chain doesn't:
 
-`117` (round 1) → `130` (round-1 fixes) → `135` → `141` → `147` → `152` (`dcffdac`) → **`184`** (round-2 fixes)
+`117` (round 1) → `130` (round-1 fixes) → `135` → `141` → `147` → `152` (`dcffdac`) → `184` (round-2 fixes) → **`194`** (app wiring)
 
-Regenerate with `make test`, which prints `Executed N tests`. Coverage: **82.16% line** on
-`Sources/` (`make coverage`).
+Regenerate with `make test`, which prints `Executed N tests`.
+
+Coverage moved **down** from 82.16% to **64.3%** when the app shell was wired — that added ~1,500
+lines of SwiftUI and live-OS code that cannot execute headlessly. The *testable core* is unchanged at
+~90%. Recording the drop rather than quietly re-baselining is the point: coverage fell because
+untestable surface area was added, not because tests were lost.
 
 ### Findings & disposition (HIGH/MED)
 

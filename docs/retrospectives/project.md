@@ -28,7 +28,7 @@ separate `docs` retrospective commit, plus a running [DECISIONS.md](../../DECISI
 - **Chat separation by URL path** (`dcffdac`) — same-title chats become distinct sessions.
 - **Companion site** (`51fe2b0`).
 
-**Final state:** **184 unit tests, 0 failures; 82.16% line coverage on `Sources/`** (re-measured with
+**Final state:** **194 unit tests, 0 failures; 64.3% line coverage on `Sources/`** (~90% on the testable core; the app-shell wiring added ~1,500 lines of SwiftUI that can't run headlessly) (re-measured with
 `make coverage` after the round-2 fixes, not carried forward); 8 SwiftPM library targets; 9
 guardrails, each backed by a test.
 

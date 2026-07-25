@@ -16,7 +16,7 @@ in a few minutes instead of an end-of-week archaeology session.
 
 > **Status: code complete; never run.**
 > All seven phases (0–6) of logic ship as tested SwiftPM targets under `Packages/TidyKit`
-> — **184 unit tests, 0 failures**, ~82% line coverage — covering capture, the read-only Productive
+> — **194 unit tests, 0 failures** — covering capture, the read-only Productive
 > mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, and the
 > metered AI router. The macOS app in `App/` now **hosts** those modules (menu bar popover, recap,
 > dashboard, settings, doctor) and type-checks against the real SDK (`make typecheck-app`) — but it

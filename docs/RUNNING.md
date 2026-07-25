@@ -1,6 +1,6 @@
 # Running TidyTime — what was built, and how to get it going
 
-**Describes commit `46db539` · 184 tests passing · 2026-07-25.**
+**Describes commit `ec1beb2`+ · 194 tests passing · 2026-07-25.**
 If `HEAD` is newer than that, re-verify before trusting the numbers below — regenerate them with
 `make test` and `make coverage` rather than copying them forward.
 
@@ -45,8 +45,8 @@ Architecture: [overview](architecture/overview.md) · [module map](architecture/
 
 | | | Produced by |
 |---|---|---|
-| **184 unit tests, 0 failures** | | `cd Packages/TidyKit && swift test` |
-| **82.16% line coverage** on `Sources/` | (regions 76.0%, functions 71.4%) | `make coverage` |
+| **194 unit tests, 0 failures** | | `cd Packages/TidyKit && swift test` |
+| **64.3% line coverage** on `Sources/` | ~90% on the testable core; the rest is SwiftUI + live-OS code that can't run headlessly | `make coverage` |
 | **8 SwiftPM library targets** + 1 app target | | `Package.swift` |
 | **9 guardrails**, each backed by a test | | [guardrails.md](guardrails.md) |
 | **9 migrations** `v1-core` … `v2-page-snapshot-time-index` | additive; upgrade path tested | [data-model.md](architecture/data-model.md#registered-migrations-as-shipped) |

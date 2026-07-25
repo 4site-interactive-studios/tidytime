@@ -130,14 +130,15 @@ public final class AppEnvironment: ObservableObject {
 
     public var timeZone: TimeZone { TimeZone(identifier: config.organization.timezone) ?? .current }
 
-    public static func dayString(_ date: Date, _ tz: TimeZone) -> String {
+    /// Pure helpers — `nonisolated` so they're callable (and testable) off the main actor.
+    public nonisolated static func dayString(_ date: Date, _ tz: TimeZone) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"; f.timeZone = tz
         return f.string(from: date)
     }
 
     /// Local-day bounds as epoch seconds.
-    public static func dayBounds(for date: Date, timeZone: TimeZone) -> (Int64, Int64) {
+    public nonisolated static func dayBounds(for date: Date, timeZone: TimeZone) -> (Int64, Int64) {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timeZone
         let start = cal.startOfDay(for: date)
