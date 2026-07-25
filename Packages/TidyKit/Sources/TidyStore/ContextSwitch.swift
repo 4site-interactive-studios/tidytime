@@ -1,4 +1,5 @@
 import Foundation
+import TidyCore
 
 /// Quantifies context switching from the RAW `activity_samples` stream — deliberately independent of
 /// sessionization's `min_session_seconds` floor, so the sub-minute thrash that billing filters out is
@@ -39,29 +40,64 @@ public struct ContextSwitchMetrics: Sendable, Equatable {
 public struct ContextSwitchAnalyzer: Sendable {
     /// Runs shorter than this count as "brief" (thrash). Default 2 min.
     public let briefThresholdSeconds: Int
-    public init(briefThresholdSeconds: Int = 120) { self.briefThresholdSeconds = briefThresholdSeconds }
+    /// Ceiling on a single uninterrupted span that we're willing to call *focus*. Round-2 finding
+    /// R1-2: `closeOpenSample` makes samples contiguous by construction, so an unattended machine
+    /// (lunch, overnight, screen locked) produced one enormous run that inflated `activeSeconds` and
+    /// won `longestFocusSeconds` — and `writeRollup` persisted it, poisoning the trend series.
+    ///
+    /// The precise signal is `away_gaps`; pass them to ``analyze(_:now:awayGaps:)`` and runs are
+    /// clipped exactly. This ceiling is only the **fallback heuristic** for when no away-gap evidence
+    /// exists, so it is deliberately generous (2h) — an hour of genuine deep work must still count as
+    /// focus, which is the whole point of the metric.
+    public let maxPlausibleFocusSeconds: Int
+    public let policy: ContextSignature.Policy
+
+    public init(briefThresholdSeconds: Int = 120, maxPlausibleFocusSeconds: Int = 7200,
+                policy: ContextSignature.Policy = .default) {
+        self.briefThresholdSeconds = briefThresholdSeconds
+        self.maxPlausibleFocusSeconds = maxPlausibleFocusSeconds
+        self.policy = policy
+    }
+
+    /// Analyze, clipping out known away gaps (idle / lock / sleep) so unattended time is never focus.
+    public func analyze(_ samples: [ActivitySample], now: Int64, awayGaps: [AwayGap]) -> ContextSwitchMetrics {
+        analyze(subtracting(awayGaps, from: samples, now: now), now: now)
+    }
 
     public func analyze(_ samples: [ActivitySample], now: Int64) -> ContextSwitchMetrics {
         let sorted = samples.sorted { $0.startedAt < $1.startedAt }
         guard !sorted.isEmpty else { return .empty }
 
         // Collapse consecutive identical signatures into runs; each run's duration is its dwell time.
+        // A single sample spanning >= idleThresholdSeconds is unattended time, not focus, and is
+        // dropped entirely (R1-2) — it must not inflate activeSeconds or win longestFocusSeconds.
         var runs: [(ctx: String, dur: Int)] = []
         var curCtx: String?
         var curStart: Int64 = 0
         var curEnd: Int64 = 0
+        func flush() {
+            if let c = curCtx { runs.append((c, Int(curEnd - curStart))) }
+            curCtx = nil
+        }
         for (i, s) in sorted.enumerated() {
-            let rawEnd = s.endedAt ?? (i + 1 < sorted.count ? sorted[i + 1].startedAt : now)
+            // A trailing OPEN sample is clamped to `now` — never stretched past the window, so
+            // assembling a PAST day's recap today can't extend that run to the present.
+            let rawEnd = s.endedAt ?? min(now, i + 1 < sorted.count ? sorted[i + 1].startedAt : now)
             let end = max(s.startedAt, rawEnd)
-            let sig = Self.signature(s)
+            let span = Int(end - s.startedAt)
+            if span >= maxPlausibleFocusSeconds {
+                flush()          // close whatever preceded it…
+                continue         // …and drop the implausibly-long (unattended) span itself.
+            }
+            let sig = Self.signature(s, policy: policy)
             if sig == curCtx {
                 curEnd = max(curEnd, end)
             } else {
-                if let c = curCtx { runs.append((c, Int(curEnd - curStart))) }
+                flush()
                 curCtx = sig; curStart = s.startedAt; curEnd = end
             }
         }
-        if let c = curCtx { runs.append((c, Int(curEnd - curStart))) }
+        flush()
 
         let dwell = runs.map { $0.dur }
         let active = dwell.reduce(0, +)
@@ -81,8 +117,38 @@ public struct ContextSwitchAnalyzer: Sendable {
             longestFocusSeconds: dwell.max() ?? 0)
     }
 
-    /// Fine context signature: app + window title + URL (matches the tiered coordinator's key).
-    static func signature(_ s: ActivitySample) -> String {
-        "\(s.appBundleId)\u{1}\(s.windowTitle ?? "")\u{1}\(s.url ?? "")"
+    /// Clip samples against known away gaps: any overlap with an away interval is removed, splitting
+    /// a sample into the surviving head/tail pieces. This is the *precise* way unattended time leaves
+    /// the metric (the span ceiling is only a fallback when no gaps were recorded).
+    func subtracting(_ gaps: [AwayGap], from samples: [ActivitySample], now: Int64) -> [ActivitySample] {
+        guard !gaps.isEmpty else { return samples }
+        let intervals = gaps.map { ($0.startedAt, $0.endedAt) }.sorted { $0.0 < $1.0 }
+        var out: [ActivitySample] = []
+        for s in samples {
+            var pieces: [(Int64, Int64)] = [(s.startedAt, max(s.startedAt, s.endedAt ?? now))]
+            for (gs, ge) in intervals {
+                var next: [(Int64, Int64)] = []
+                for (ps, pe) in pieces {
+                    if ge <= ps || gs >= pe { next.append((ps, pe)); continue }  // no overlap
+                    if gs > ps { next.append((ps, min(gs, pe))) }                 // head survives
+                    if ge < pe { next.append((max(ge, ps), pe)) }                 // tail survives
+                }
+                pieces = next
+            }
+            for (ps, pe) in pieces where pe > ps {
+                var piece = s
+                piece.startedAt = ps
+                piece.endedAt = pe
+                out.append(piece)
+            }
+        }
+        return out.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    /// Fine context signature. Delegates to `TidyCore.ContextSignature` — the SAME definition the
+    /// capture gate and sessionization use, so query/fragment churn and unread-badge ticks are not
+    /// counted as context switches (round-2 finding R1-1).
+    static func signature(_ s: ActivitySample, policy: ContextSignature.Policy = .default) -> String {
+        ContextSignature.key(appBundleId: s.appBundleId, windowTitle: s.windowTitle, url: s.url, policy: policy)
     }
 }

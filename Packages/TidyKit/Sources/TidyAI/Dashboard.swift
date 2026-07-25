@@ -36,8 +36,12 @@ public struct DashboardBuilder: Sendable {
             case "ok", "retried", "escalated":
                 resolved += 1
                 if c.provider == "apple" { onDevice += 1 }
-                if c.provider == "fireworks" { economy += 1 }
-                if c.jobType == "escalation" || c.outcome == "escalated" { escalations += 1 }
+                // Tier is a JOB property, not a vendor one. Since escalation was rerouted onto the
+                // same vendor as the economy tier, classifying by `provider == "fireworks"` counted
+                // escalations inside their own denominator and corrupted escalationRate (R3-1).
+                let isEscalation = c.jobType == "escalation" || c.outcome == "escalated"
+                if isEscalation { escalations += 1 }
+                else if c.provider != "apple" { economy += 1 }   // cloud, cheap-tier attempt
             default: break
             }
         }

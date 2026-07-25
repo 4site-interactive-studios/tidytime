@@ -176,16 +176,22 @@ public struct Config: Codable, Sendable, Equatable {
         /// Fold the browser URL path into the session grouping key, so distinct chats/docs that share
         /// a title become separate sessions. Off → group by title only (fewer, coarser sessions).
         public var separateChatsByPath: Bool
+        /// Query parameters that carry real identity (e.g. `project`, `doc`) and so should NOT be
+        /// discarded when comparing contexts. Empty by default: all query params are volatile churn
+        /// unless you opt them in. An allowlist fails closed; a denylist would fail open.
+        public var identityQueryKeys: [String]
         public var killSwitches: KillSwitches
         public init(browser: String = "chrome", heartbeatSeconds: Int = 30,
                     detectionIntervalSeconds: Double = 1.0, contentIntervalSeconds: Double = 20.0,
                     idleThresholdSeconds: Int = 600, pageTextMaxBytes: Int = 4096,
-                    separateChatsByPath: Bool = true, killSwitches: KillSwitches = .init()) {
+                    separateChatsByPath: Bool = true, identityQueryKeys: [String] = [],
+                    killSwitches: KillSwitches = .init()) {
             self.browser = browser; self.heartbeatSeconds = heartbeatSeconds
             self.detectionIntervalSeconds = detectionIntervalSeconds
             self.contentIntervalSeconds = contentIntervalSeconds
             self.idleThresholdSeconds = idleThresholdSeconds; self.pageTextMaxBytes = pageTextMaxBytes
             self.separateChatsByPath = separateChatsByPath
+            self.identityQueryKeys = identityQueryKeys
             self.killSwitches = killSwitches
         }
         enum CodingKeys: String, CodingKey {
@@ -194,6 +200,7 @@ public struct Config: Codable, Sendable, Equatable {
             case contentIntervalSeconds = "content_interval_seconds"
             case idleThresholdSeconds = "idle_threshold_seconds", pageTextMaxBytes = "page_text_max_bytes"
             case separateChatsByPath = "separate_chats_by_path"
+            case identityQueryKeys = "identity_query_keys"
             case killSwitches = "kill_switches"
         }
         public init(from d: Decoder) throws {
@@ -205,6 +212,7 @@ public struct Config: Codable, Sendable, Equatable {
             idleThresholdSeconds = try c.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? z.idleThresholdSeconds
             pageTextMaxBytes = try c.decodeIfPresent(Int.self, forKey: .pageTextMaxBytes) ?? z.pageTextMaxBytes
             separateChatsByPath = try c.decodeIfPresent(Bool.self, forKey: .separateChatsByPath) ?? z.separateChatsByPath
+            identityQueryKeys = try c.decodeIfPresent([String].self, forKey: .identityQueryKeys) ?? z.identityQueryKeys
             killSwitches = try c.decodeIfPresent(KillSwitches.self, forKey: .killSwitches) ?? z.killSwitches
         }
     }

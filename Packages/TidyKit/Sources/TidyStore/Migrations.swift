@@ -375,5 +375,10 @@ public enum Migrations {
                 t.add(column: "longest_focus_seconds", .integer).notNull().defaults(to: 0)
             }
         }
+        // `pageTexts` filters page_snapshots by captured_at; without this it full-scans + temp-sorts
+        // once per unclassified session (round-2 finding R1-6).
+        m.registerMigration("v2-page-snapshot-time-index") { db in
+            try db.create(indexOn: "page_snapshots", columns: ["captured_at"])
+        }
     }
 }

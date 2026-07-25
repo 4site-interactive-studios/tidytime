@@ -18,16 +18,20 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private let reader: FrontmostReading
     private let browser: BrowserAdapter?
     private let recorder: SampleRecorder
+    private let policy: ContextSignature.Policy
 
     private let lock = NSLock()
     private var lastSignature: String?
+    private var lastContentURL: String?
     private var currentSampleId: Int64?
     private var currentContext: FrontmostContext?
 
-    public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder) {
+    public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder,
+                policy: ContextSignature.Policy = .default) {
         self.reader = reader
         self.browser = browser
         self.recorder = recorder
+        self.policy = policy
     }
 
     /// Detection tick. Records a new sample iff the observed context changed. Returns true if it did.
@@ -40,10 +44,14 @@ public final class CaptureCoordinator: @unchecked Sendable {
             ctx.url = tab.url
             if let title = tab.title, !title.isEmpty { ctx.windowTitle = title }
         }
-        let signature = Self.signature(ctx)
+        let signature = Self.signature(ctx, policy: policy)
 
         lock.lock()
         let unchanged = signature == lastSignature
+        // Refresh-without-recording: the normalized context is the same (e.g. only `?msg=` churned),
+        // but keep the live raw context so a later page-snapshot files under the URL actually on
+        // screen. No new row, and deliberately no content capture.
+        if unchanged { currentContext = ctx }
         lock.unlock()
         if unchanged { return false }
 
@@ -54,8 +62,16 @@ public final class CaptureCoordinator: @unchecked Sendable {
         currentContext = ctx
         lock.unlock()
 
-        // Grab page content immediately on landing in a new browser context.
-        try? captureContent()
+        // Grab page content on landing in a new browser context — but only when the *page* changed,
+        // not merely the title (R3-6: otherwise a title-churning tab re-fires an expensive
+        // `innerText` AppleScript on every detection tick).
+        if ctx.isBrowser {
+            let normalized = ContextSignature.normalizedURL(ctx.url, policy: policy)
+            lock.lock()
+            let pageChanged = normalized != lastContentURL
+            lock.unlock()
+            if pageChanged { try? captureContent() }
+        }
         return true
     }
 
@@ -69,11 +85,16 @@ public final class CaptureCoordinator: @unchecked Sendable {
         guard let ctx, ctx.isBrowser, let id, let browser, let url = ctx.url,
               let text = browser.visiblePageText(), !text.isEmpty else { return }
         _ = try recorder.recordPageText(sampleId: id, url: url, title: ctx.windowTitle, rawText: text)
+        lock.lock()
+        lastContentURL = ContextSignature.normalizedURL(url, policy: policy)
+        lock.unlock()
     }
 
-    /// The change key: app + window title + URL. A within-app title/tab change flips it, which is
-    /// what gives sub-app (per-chat / per-tab) granularity.
-    static func signature(_ c: FrontmostContext) -> String {
-        "\(c.appBundleId)\u{1}\(c.windowTitle ?? "")\u{1}\(c.url ?? "")"
+    /// The change key. Delegates to `TidyCore.ContextSignature` so capture gating, the
+    /// context-switch metric, and sessionization share ONE definition (round-2 finding R1-1).
+    /// A within-app title/tab change flips it (sub-app granularity); per-message query/fragment
+    /// churn and unread-badge ticks do not.
+    static func signature(_ c: FrontmostContext, policy: ContextSignature.Policy = .default) -> String {
+        ContextSignature.key(appBundleId: c.appBundleId, windowTitle: c.windowTitle, url: c.url, policy: policy)
     }
 }

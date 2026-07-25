@@ -40,9 +40,23 @@ extension AppDatabase {
 
     /// Page-snapshot texts captured within a time window (newest first, capped) — lexical evidence
     /// for classifying a session (rungs 1–2 are local, so no gate needed here).
-    public func pageTexts(from start: Int64, to end: Int64, limit: Int = 3) throws -> [String] {
+    ///
+    /// `host` scopes the result to the session's own context. Without it, a brief detour that the
+    /// Sessionizer *absorbs* into a session (detour tolerance, default 120s) contributes its page
+    /// text — and because the ordering is newest-first with a small limit, a 90-second glance at an
+    /// unrelated site could supply 100% of a two-hour session's attribution evidence (R1-3).
+    public func pageTexts(from start: Int64, to end: Int64, limit: Int = 3, host: String? = nil) throws -> [String] {
         try writer.read { db in
-            try String.fetchAll(db, sql: """
+            if let host, !host.isEmpty {
+                return try String.fetchAll(db, sql: """
+                    SELECT text FROM page_snapshots
+                    WHERE captured_at >= ? AND captured_at < ?
+                      AND (url LIKE ? OR url LIKE ? OR url LIKE ?)
+                    ORDER BY captured_at DESC LIMIT ?
+                    """, arguments: [start, end,
+                                     "%://\(host)/%", "%://\(host)", "%://www.\(host)%", limit])
+            }
+            return try String.fetchAll(db, sql: """
                 SELECT text FROM page_snapshots WHERE captured_at >= ? AND captured_at < ?
                 ORDER BY captured_at DESC LIMIT ?
                 """, arguments: [start, end, limit])
@@ -75,6 +89,16 @@ extension AppDatabase {
     }
 
     // MARK: away_gaps
+
+    /// All away gaps overlapping a window — used to clip unattended time out of the
+    /// context-switch metric (round-2 finding R1-2).
+    public func awayGaps(from start: Int64, to end: Int64) throws -> [AwayGap] {
+        try writer.read { db in
+            try AwayGap
+                .filter(sql: "ended_at > ? AND started_at < ?", arguments: [start, end])
+                .order(sql: "started_at ASC").fetchAll(db)
+        }
+    }
 
     @discardableResult
     public func insertAwayGap(_ gap: AwayGap) throws -> Int64 {

@@ -24,9 +24,18 @@ public struct RecapAssembler: Sendable {
     private let db: AppDatabase
     private let clock: TidyClock
     private let selfPersonId: String?
+    private let contextPolicy: ContextSignature.Policy
 
-    public init(db: AppDatabase, clock: TidyClock = SystemClock(), selfPersonId: String? = nil) {
+    public init(db: AppDatabase, clock: TidyClock = SystemClock(), selfPersonId: String? = nil,
+                contextPolicy: ContextSignature.Policy = .default) {
         self.db = db; self.clock = clock; self.selfPersonId = selfPersonId
+        self.contextPolicy = contextPolicy
+    }
+
+    /// Convenience: derive the context policy straight from config.
+    public init(db: AppDatabase, config: Config, clock: TidyClock = SystemClock(), selfPersonId: String? = nil) {
+        self.init(db: db, clock: clock, selfPersonId: selfPersonId,
+                  contextPolicy: ContextSignature.Policy(config.capture))
     }
 
     public func assemble(day: String, from: Int64, to: Int64) throws -> RecapDay {
@@ -37,9 +46,13 @@ public struct RecapAssembler: Sendable {
         if let personId = selfPersonId {
             logged = ((try? db.timeEntries(personId: personId, date: day)) ?? []).reduce(0) { $0 + $1.timeMinutes }
         }
-        // Context switching is computed from RAW samples so sub-minute thrash still counts.
+        // Context switching is computed from RAW samples so sub-minute thrash still counts. The
+        // analyzer drops unattended spans (>= idleThreshold) so an overnight gap can't register as
+        // focus, and clamps a trailing open sample to `now` (round-2 finding R1-2).
         let now = Int64(clock.now.timeIntervalSince1970)
-        let switches = ContextSwitchAnalyzer().analyze(try db.samples(from: from, to: to), now: now)
+        let awayGaps = (try? db.awayGaps(from: from, to: to)) ?? []
+        let switches = ContextSwitchAnalyzer(policy: contextPolicy)
+            .analyze(try db.samples(from: from, to: to), now: min(now, to), awayGaps: awayGaps)
         return RecapDay(
             day: day, timeline: sessions, suggestions: try db.suggestions(day: day),
             questions: try db.openQuestions(), observedSeconds: observed,

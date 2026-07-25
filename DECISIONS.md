@@ -357,6 +357,68 @@ structured output, RecapAssembler logged-minutes, and the CSV export. 117 → 13
   a separate Anthropic key); enabling it is a one-line routing change. That direct path is the only
   way to get Claude/Fable-grade adjudication if it's ever required.
 
+---
+
+## Round-2 review fixes (2026-07-25)
+
+Four **blind** reviewers audited `034e6b8..dcffdac` (the post-review delta, incl. the never-reviewed
+site commit). 52 findings; 3 of 4 verdicts were `fail`. All four caught their calibration probes, so
+the instrument was trusted. Fixes:
+
+### ONE context signature, shared across three call sites (R1-1 / R3-7) — HIGH
+- **Was:** `CaptureCoordinator.signature` and `ContextSwitchAnalyzer.signature` keyed on the **raw**
+  URL and **raw** title, while `ContextKey` normalized both. So `?msg=1 → ?msg=99`, a `#fragment`, a
+  trailing slash, or an unread-badge tick `(3) Slack → (4) Slack` wrote a NEW `activity_samples` row,
+  re-fired the expensive `innerText` AppleScript, **and counted as a context switch** — inflating the
+  exact metric the feature exists to report (a reviewer measured 10 churn samples → switchCount 9,
+  fragmentation 100%, while sessionization correctly produced ONE session).
+- **Now:** `TidyCore.ContextSignature` is the single definition (TidyCore because `TidyStore` cannot
+  import `TidyCapture`). `ContextKey` forwards to it. `ContextSignatureTests.testCaptureAndMetricAgreeOnEveryCase`
+  is a table-driven guard that fails if they ever re-diverge.
+- **`ContextKey.derive` still uses `host(from:)`, NOT `normalizedURL`** — the latter falls back to the
+  raw string for unparseable input and would yield `web:not a url` instead of the `app:` fallback.
+- **Store raw, gate normalized:** `activity_samples.url` keeps the RAW URL (the ledger stays raw, so
+  the metric can be recomputed under a future policy across the 90-day window); only the change gate
+  and the metric normalize. `poll()` gained a *refresh-without-recording* branch so page snapshots
+  still file under the on-screen URL.
+- **Identity query params are an opt-in allowlist** (`capture.identity_query_keys`, default `[]`).
+  A denylist of volatile params (`?msg=`, `utm_*`, …) would fail **open** — any unlisted param
+  silently reintroduces the bug. An allowlist fails **closed**.
+
+### Unattended time is not focus (R1-2) — HIGH
+- **Was:** `closeOpenSample` makes samples contiguous *by construction*, so `AwayGapDetector.idleGaps`
+  can never fire on recorder output, and `PowerObserver` is never constructed — an overnight absence
+  rendered as one enormous run that won `longestFocusSeconds` and inflated `activeSeconds`.
+  `writeRollup` then **persisted** it, poisoning the trend series permanently.
+- **Now:** `analyze(_:now:awayGaps:)` clips runs against recorded away gaps (precise), plus a
+  **generous fallback ceiling** `maxPlausibleFocusSeconds` (default 2h) for when no gap evidence exists.
+- **DESIGN ERROR I made and corrected:** my first cut dropped any span ≥ `idleThreshold` (10 min).
+  That is wrong — span length alone cannot distinguish deep focus from an idle machine, and it broke
+  an existing test where one hour of genuine focused work stopped counting as focus. **Do not
+  re-tighten this to idleThreshold.** `testOneHourOfDeepWorkStillCountsAsFocus` guards it.
+- A trailing OPEN sample is clamped to `now`, so assembling a PAST day can't stretch a run to the present.
+
+### Escalation rate corrupted by same-vendor routing (R3-1) — HIGH
+- Routing escalation onto Fireworks broke `DashboardBuilder`, which classified the economy tier by
+  `provider == "fireworks"` — so escalations were counted **inside their own denominator**. Tier is a
+  **job** property, not a vendor one; now keyed on `jobType == "escalation" || outcome == "escalated"`.
+
+### Page text scoped to the session's own context (R1-3) — MED
+- `pageTexts` filtered on TIME only. A ≤120s detour that the Sessionizer *absorbs* into a session fell
+  inside the window and — because ordering is newest-first with limit 3 — could supply **100%** of a
+  two-hour session's attribution evidence. Now takes a `host:` scope; added an index on
+  `page_snapshots(captured_at)` (R1-6, was a full scan + temp B-tree per session).
+
+### Also fixed
+- `captureContent()` now fires only when the **page** changed, not on any signature change (R3-6).
+- `separate_chats_by_path` / `identity_query_keys` are read in production via
+  `ContextSignature.Policy(config.capture)` in `LiveCaptureController` (R1-7 "configured ≠ enforced").
+- **v2 migration upgrade path is now tested on a POPULATED db** (`migrate(upTo: "v1-ai")` → insert a
+  rollup → migrate the rest), not just a fresh one (R2-02).
+- Replaced a **vacuous assertion** (`testNativeSameTitleCannotSeparate` compared a pure function's
+  output to itself) with a concrete expected value (R2-04).
+- 152 → **184 tests**, 0 failures. Coverage 82.16% line on `Sources/`.
+
 ### Finer within-app attribution (2026-07-24)
 - **Goal:** make each switched-to context (chat 1 vs Cowork vs a project, all inside one Claude
   window) land on the right client/project — not just be *counted* as a switch.

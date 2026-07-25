@@ -228,7 +228,8 @@ public final class LiveCaptureController {
         let browser: BrowserAdapter? = config.capture.browser == "chrome" ? ChromeAdapter() : nil
         let recorder = SampleRecorder(db: db, policy: PageTextPolicy(maxBytes: config.capture.pageTextMaxBytes),
                                       browserName: config.capture.browser)
-        self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder)
+        self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder,
+                                              policy: ContextSignature.Policy(config.capture))
         self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
         self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
     }

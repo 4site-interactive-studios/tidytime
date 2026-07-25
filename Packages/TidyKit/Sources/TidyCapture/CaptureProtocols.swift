@@ -36,8 +36,14 @@ public final class FakeBrowserAdapter: BrowserAdapter, @unchecked Sendable {
         self.browserName = browserName; self.appBundleId = appBundleId
         self.tab = tab; self.pageText = pageText; self.jsEnabled = jsEnabled
     }
+    /// Counts `visiblePageText()` calls so tests can assert the expensive AppleScript round-trip
+    /// isn't re-fired on churn (round-2 finding R3-6).
+    public private(set) var pageTextCalls = 0
     public func activeTab() -> BrowserTab? { tab }
-    public func visiblePageText() -> String? { jsEnabled ? pageText : nil }
+    public func visiblePageText() -> String? {
+        pageTextCalls += 1
+        return jsEnabled ? pageText : nil
+    }
     public func javaScriptFromAppleEventsEnabled() -> Bool { jsEnabled }
 }
 
