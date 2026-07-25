@@ -57,10 +57,15 @@ Architecture: [overview](architecture/overview.md) · [module map](architecture/
 Read this before trusting anything above. It is the difference between "tested library" and
 "working product".
 
-- **The macOS app target is still the Phase-0 placeholder.** `App/TidyTimeApp.swift` renders a static
-  menu-bar item; **no TidyKit module is wired into it**. `make run` launches a shell, not the product.
-  `LiveCaptureController`, `SessionBuildJob`, `RecapView` and every other surface have **no production
-  construction site**.
+- **The app is wired but has never been RUN.** `App/TidyTimeApp.swift` now constructs
+  `AppEnvironment` and hosts the full surface, and the code **type-checks against the real SDK**
+  (`make typecheck-app`) — but nobody has launched it, granted it a permission, or seen a window.
+  You will be the first.
+- ⚠️ **`xcodebuild` is broken on the development machine**, so no `.app` or `.dmg` has ever been
+  produced. A stale `/Library/Developer/PrivateFrameworks/DVTDownloads.framework` (Jan 2026) doesn't
+  match Xcode 26.6. **Fix: `sudo xcodebuild -runFirstLaunch`** (needs your password). Until then
+  `make build` / `make run` / `make dmg` will fail before compiling anything — `make typecheck-app`
+  is the workaround that proves the code itself is sound.
 - **Every SwiftUI / AppKit / OS-integration path is compile-only.** No test exercises the timers,
   `NSWorkspace` observers, Accessibility reads, AppleScript, or any view.
 - **No live API call has ever been made from this repo.** Productive, Fathom, Google, Slack, Fireworks
@@ -104,10 +109,14 @@ Set `organization.*` (Productive org + person id) and `google.*`; review `captur
 
 **5 · Build and run.**
 ```bash
+make typecheck-app     # proves App/ compiles even if xcodebuild is unhealthy
 make build && make run
 ```
-✔ A menu-bar icon appears. ⚠️ Today that is the **placeholder shell** — see
-[What is NOT verified](#what-is-not-verified).
+✔ A menu-bar icon appears; clicking it shows today's observed/logged totals and opens Recap,
+Dashboard, Settings, and Doctor. **Open Doctor first** — it shows live permission status and has the
+one-click *Copy diagnostics* button.
+⚠️ If `xcodebuild` errors about a plug-in before compiling, run `sudo xcodebuild -runFirstLaunch`
+(see [What is NOT verified](#what-is-not-verified)).
 
 **6 · Grant permissions** (in order): Accessibility → Automation (Chrome + System Events) → Chrome's
 *View → Developer → Allow JavaScript from Apple Events* → Notifications. Screen Recording is **never**
@@ -141,6 +150,8 @@ Then walk the per-phase manual acceptance checks and the final-acceptance table 
 | `build` / `run` | Build / build + launch the app |
 | `test` | `swift test` over TidyKit |
 | `coverage` | Tests + per-file llvm-cov report for `Sources/` |
+| `typecheck-app` | Compile-check `App/` against the SDK without xcodebuild |
+| `dmg` | Release build packaged as `dist/TidyTime.dmg` |
 | `doctor` | Print config/DB paths |
 | `lint` | Verify relative documentation links resolve |
 | `clean` | Remove generated project + build artifacts |
