@@ -143,14 +143,16 @@
 <section>
   <div class="wrap">
     <h2>Features</h2>
-    <p class="sub">Five layers, each useful without the ones above it.</p>
+    <p class="sub">What it actually does.</p>
     <div class="grid">
-      <div class="card"><span class="ic">👀</span><h3>Passive capture</h3><p>Foreground app + window titles (via Accessibility, never Screen Recording), Chrome URL/title/visible text, idle & away detection — under ~2% CPU.</p></div>
+      <div class="card"><span class="ic">👀</span><h3>Passive capture</h3><p>Foreground app + window titles (via Accessibility, never Screen Recording), Chrome URL/title/visible text, idle & away detection. Sampling is change-gated, so an idle poll writes nothing.</p></div>
       <div class="card"><span class="ic">🔌</span><h3>Read-only ingest</h3><p>Productive (clients/projects/tasks/entries), Fathom meetings & transcripts, Google Calendar, and Slack DMs/channels — including messages you sent from your phone.</p></div>
-      <div class="card"><span class="ic">🧭</span><h3>Attribution ladder</h3><p>Rules → lexical → on-device model → economy cloud → Claude. Local-first, then cheap, then smart — most sessions never touch the cloud.</p></div>
+      <div class="card"><span class="ic">🧭</span><h3>Attribution ladder</h3><p>Rules → lexical → on-device model → economy cloud → escalation. Local-first, then cheap, then smart — most sessions never touch the cloud. Sessions group on a fine key (normalized title + URL path), so two chats in one window can attribute to different projects while host rules still converge.</p></div>
       <div class="card"><span class="ic">🧾</span><h3>Ready-to-enter suggestions</h3><p>Grouped by task, rounded to 15 minutes with a slight round-up bias, micro-work pooled, meetings split per client, gap-analyzed against what you already logged.</p></div>
       <div class="card"><span class="ic">🔔</span><h3>Nudges & recap</h3><p>Rate-limited, meeting-aware nudges during the day; a full recap at end of day (or first thing next morning). Ignoring nudges costs nothing.</p></div>
-      <div class="card"><span class="ic">📊</span><h3>Metered AI</h3><p>Every cloud call is logged with tokens and dollar cost; per-provider and global daily budget caps drop the app to local-only instead of failing silently.</p></div>
+      <div class="card"><span class="ic">📊</span><h3>Metered AI</h3><p>Every cloud call is logged with tokens and dollar cost; per-provider and global daily budget caps drop the app to local-only instead of failing silently. All cloud inference goes through one vendor, so there's one key and one ledger.</p></div>
+      <div class="card"><span class="ic">⚡</span><h3>Sub-app granularity</h3><p>A fast change-gated poll (default 1s) records a sample the moment the app, window title, or tab URL changes — so chat→chat and tab→tab register immediately, not at the next heartbeat. Per-message churn is normalized away so it doesn't fragment your day.</p></div>
+      <div class="card"><span class="ic">🔀</span><h3>Context switching, measured</h3><p>Switches, switches per active hour, mean and median dwell, brief-switch fragmentation, and longest focus — computed from the raw sample stream so sub-minute thrash still counts, with unattended time clipped out. Persisted daily so you can watch the trend.</p></div>
     </div>
   </div>
 </section>
@@ -163,9 +165,25 @@
       <div class="step"><span class="n">1</span><div><b>Deterministic rules</b><br><span>A known signal (client domain, Slack channel, meeting attendee) resolves instantly. Zero cost, fully local.</span></div></div>
       <div class="step"><span class="n">2</span><div><b>Lexical matching</b><br><span>Tokenized titles/URLs scored against your Productive clients, projects, and tasks. High-margin matches classify; ambiguous ones become a question.</span></div></div>
       <div class="step"><span class="n">3</span><div><b>On-device model</b><br><span>Apple Foundation Models (macOS 26 + Apple Intelligence) with guided generation. Free, private, on your Mac.</span></div></div>
-      <div class="step"><span class="n">4</span><div><b>Economy cloud</b><br><span>Fireworks AI (Kimi/GLM-class) for the rest — session batches, transcript splitting, note drafting. Cents per day.</span></div></div>
-      <div class="step"><span class="n">5</span><div><b>Claude escalation</b><br><span>Only when the cheap tier earns it: invalid output, low confidence, or a transcript that doesn't add up.</span></div></div>
+      <div class="step"><span class="n">4</span><div><b>Economy cloud (Fireworks)</b><br><span>An open-weight model on Fireworks AI for the rest — session batches, transcript splitting, note drafting. Cents per day.</span></div></div>
+      <div class="step"><span class="n">5</span><div><b>Escalation</b><br><span>Only when the cheap tier earns it — invalid output, low confidence, or a transcript that doesn't add up — the work is re-run on a stronger adjudicator. Escalation routes through Fireworks too, so it's one vendor, one key, one ledger; a direct Anthropic/Claude path stays configured but off by default.</span></div></div>
     </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Measuring the thrash</h2>
+    <p class="sub">Agentic tooling fragments a day in a way older time trackers never had to model.</p>
+    <p>A morning spent across four Claude chats, a Cowork session, an IDE, a terminal and Slack isn't
+      idle — but it isn't focused either, and an hourly total hides that completely. TidyTime counts
+      every switch from the <b>raw sample stream</b>, so the sub-minute jumps that billing rightly
+      filters out as noise still show up here. Unattended time is clipped out first, so a lunch break
+      never masquerades as deep focus.</p>
+    <figure>
+      <img src="assets/context-switches.svg" alt="Context-switching panel showing 78 switches, 11.4 per active hour, 41% brief, 52 minute longest focus, above a dwell strip of mostly narrow blocks with two wide ones">
+      <figcaption>Context switching, with the dwell strip — fragmentation is a shape, not just a number.</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -203,11 +221,11 @@ make test                                  <span class="c"># run the TidyKit uni
 
 <section>
   <div class="wrap">
-    <h2>Build status</h2>
+    <h2>Library status</h2>
     <p class="sub">Capture-first and strictly phased; each phase ships tested logic behind protocols.</p>
     <div class="stats" style="margin-bottom:24px">
-      <div class="stat"><div class="big">7</div><div class="lbl">phases complete (0–6)</div></div>
-      <div class="stat"><div class="big">117</div><div class="lbl">unit tests passing</div></div>
+      <div class="stat"><div class="big">7</div><div class="lbl">phases of tested logic (0–6)</div></div>
+      <div class="stat"><div class="big">184</div><div class="lbl">unit tests passing</div></div>
       <div class="stat"><div class="big">8</div><div class="lbl">SwiftPM library targets</div></div>
       <div class="stat"><div class="big">9</div><div class="lbl">enforced guardrails</div></div>
     </div>
@@ -219,7 +237,12 @@ make test                                  <span class="c"># run the TidyKit uni
       <div class="phase"><span class="p">4</span><span class="d">Slack — DM/channel ingest</span><span class="st">✓ done</span></div>
       <div class="phase"><span class="p">5</span><span class="d">Recap &amp; rules — suggestion engine + recap</span><span class="st">✓ done</span></div>
       <div class="phase"><span class="p">6</span><span class="d">Intelligence — AI router, ledger, budgets, nudges</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">+</span><span class="d">Tiered change-gated capture — fast detection tick + slow page-text tick</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">+</span><span class="d">Context-switching metric — measured from the raw sample stream</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">+</span><span class="d">Finer within-app attribution — title/path grouping, page text into rung 2</span><span class="st">✓ done</span></div>
+      <div class="phase"><span class="p">+</span><span class="d">Two independent review rounds — 64 findings, all HIGH/MED fixed</span><span class="st">✓ done</span></div>
     </div>
+    <p class="note" style="margin-top:20px"><b>Honest status:</b> the logic layers above are complete and tested headlessly. The SwiftUI <b>app shell that hosts them is still the Phase-0 placeholder</b>, so there is no installable build yet. Live OS, Accessibility/Automation (TCC), OAuth, and cloud paths are compile-only here and are verified manually on a real Mac.</p>
   </div>
 </section>
 

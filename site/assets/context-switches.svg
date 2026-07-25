@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300" role="img" aria-label="Context switching panel: four stat tiles and a dwell strip showing a fragmented day. Illustrative mockup with synthetic data.">
+  <rect x="0" y="0" width="900" height="300" rx="14" fill="#1d2027"/>
+
+  <text x="28" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#e7ebf2">Context switching · Thursday</text>
+  <text x="28" y="58" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" fill="#8b93a3">Measured from the raw sample stream — sub-minute thrash counts; unattended time doesn't.</text>
+
+  <!-- stat tiles -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <rect x="28" y="76" width="200" height="76" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="44" y="102" font-size="11" fill="#8b93a3">CONTEXT SWITCHES</text>
+    <text x="44" y="134" font-size="26" font-weight="600" fill="#e7ebf2">78</text>
+
+    <rect x="240" y="76" width="200" height="76" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="256" y="102" font-size="11" fill="#8b93a3">SWITCHES / ACTIVE HR</text>
+    <text x="256" y="134" font-size="26" font-weight="600" fill="#e7ebf2">11.4</text>
+
+    <rect x="452" y="76" width="200" height="76" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="468" y="102" font-size="11" fill="#8b93a3">BRIEF (&lt; 2 MIN)</text>
+    <text x="468" y="134" font-size="26" font-weight="600" fill="#f0b46b">41%</text>
+
+    <rect x="664" y="76" width="208" height="76" rx="10" fill="#20242c" stroke="#333a45"/>
+    <text x="680" y="102" font-size="11" fill="#8b93a3">LONGEST FOCUS</text>
+    <text x="680" y="134" font-size="26" font-weight="600" fill="#7fd39b">52m</text>
+  </g>
+
+  <!-- dwell strip: fragmentation is a shape, not a number -->
+  <text x="28" y="186" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" fill="#8b93a3">DWELL STRIP · each block is one uninterrupted stretch on a single context</text>
+  <g>
+    <rect x="28" y="198" width="844" height="42" rx="8" fill="#20242c" stroke="#333a45"/>
+    <g>
+      <rect x="34" y="204" width="14" height="30" rx="3" fill="#5b6472"/>
+      <rect x="50" y="204" width="9"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="61" y="204" width="20" height="30" rx="3" fill="#6f7a8a"/>
+      <rect x="83" y="204" width="7"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="92" y="204" width="11" height="30" rx="3" fill="#5b6472"/>
+      <rect x="105" y="204" width="150" height="30" rx="3" fill="#7fd39b"/>
+      <rect x="257" y="204" width="8"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="267" y="204" width="13" height="30" rx="3" fill="#5b6472"/>
+      <rect x="282" y="204" width="6"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="290" y="204" width="24" height="30" rx="3" fill="#6f7a8a"/>
+      <rect x="316" y="204" width="9"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="327" y="204" width="70" height="30" rx="3" fill="#6f9ed3"/>
+      <rect x="399" y="204" width="11" height="30" rx="3" fill="#5b6472"/>
+      <rect x="412" y="204" width="7"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="421" y="204" width="15" height="30" rx="3" fill="#5b6472"/>
+      <rect x="438" y="204" width="6"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="446" y="204" width="30" height="30" rx="3" fill="#6f7a8a"/>
+      <rect x="478" y="204" width="9"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="489" y="204" width="210" height="30" rx="3" fill="#7fd39b"/>
+      <rect x="701" y="204" width="8"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="711" y="204" width="12" height="30" rx="3" fill="#5b6472"/>
+      <rect x="725" y="204" width="6"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="733" y="204" width="40" height="30" rx="3" fill="#6f7a8a"/>
+      <rect x="775" y="204" width="10" height="30" rx="3" fill="#5b6472"/>
+      <rect x="787" y="204" width="7"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="796" y="204" width="14" height="30" rx="3" fill="#5b6472"/>
+      <rect x="812" y="204" width="9"  height="30" rx="3" fill="#5b6472"/>
+      <rect x="823" y="204" width="43" height="30" rx="3" fill="#6f7a8a"/>
+    </g>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" fill="#8b93a3">
+    <rect x="28" y="252" width="10" height="10" rx="2" fill="#7fd39b"/><text x="44" y="261">deep focus</text>
+    <rect x="120" y="252" width="10" height="10" rx="2" fill="#6f9ed3"/><text x="136" y="261">meeting</text>
+    <rect x="200" y="252" width="10" height="10" rx="2" fill="#6f7a8a"/><text x="216" y="261">sustained</text>
+    <rect x="290" y="252" width="10" height="10" rx="2" fill="#5b6472"/><text x="306" y="261">brief (&lt; 2 min)</text>
+  </g>
+
+  <text x="28" y="288" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="10" fill="#6b7280">Illustrative mockup · synthetic data · not a live screenshot</text>
+</svg>
