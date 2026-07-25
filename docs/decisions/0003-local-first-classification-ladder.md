@@ -1,7 +1,7 @@
 # 0003 — Local-first classification ladder
 
 Every session is classified by climbing a five-rung ladder — rules → lexical → on-device →
-economy cloud → Claude — stopping at the first rung that answers confidently.
+economy cloud → escalation — stopping at the first rung that answers confidently.
 
 Related: [README.md](README.md) · [../guardrails.md](../guardrails.md) ·
 [../architecture/classification-ladder.md](../architecture/classification-ladder.md) ·
@@ -28,7 +28,7 @@ as far as needed:
 3. **On-device model** — Apple Foundation Models with guided generation (macOS 26 + Apple
    Intelligence); skipped if unavailable.
 4. **Economy cloud** — Fireworks AI for what local rungs can't settle.
-5. **Claude escalation** — only when rung 4 earns it.
+5. **Escalation** — a stronger adjudicator, only when rung 4 earns it (see ADR 0013 for the vendor).
 
 A confident result at any rung **short-circuits**; each suggestion records
 `sessions.produced_by_rung` and a `rationale`. This is guardrail

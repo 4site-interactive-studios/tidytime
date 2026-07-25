@@ -29,7 +29,9 @@ Hard rules this layer lives under:
   after the retention window (default 90 days). Capture writes them; the retention job
   (TidyStore) purges them. See
   [data-model.md](data-model.md#retention-phase-1-job-enforced-ongoing--guardrail-g9).
-- **Performance bar.** Event-driven + one 30 s heartbeat + batched writes, under ~2% avg CPU
+- **Performance bar.** Event-driven + a fast change-gated detection tick (default 1 s) + a slow
+  content tick (default 20 s) + batched writes. Because sampling is **change-gated**, an idle poll
+  writes nothing. (The ~2% avg CPU figure is a design target, not a measurement — see RUNNING.md.)
   ([overview.md](overview.md#performance-bar)).
 
 Tables this layer writes (defined in [data-model.md](data-model.md)):
@@ -162,8 +164,9 @@ open (see column semantics in [data-model.md](data-model.md#capture-tables-phase
 | Trigger | Coordinator action | `source` |
 |---|---|---|
 | App activation notification | Close open sample (`ended_at = now`), open a new one for the new app + title (+ URL if browser). | `'switch'` |
-| 30 s heartbeat, context **changed** (title/URL differs from open sample) | Close open sample, open a new one. | `'heartbeat'` |
-| 30 s heartbeat, context **unchanged** | Leave the open sample open (its span simply grows); no new row. Also poll idle. | — |
+| Detection tick (default 1 s), context signature **changed** | Close open sample, open a new one. | `'switch'` |
+| Detection tick, signature **unchanged** | Leave the open sample open (its span simply grows); no new row. The live raw context is still refreshed so page snapshots file under the on-screen URL. | — |
+| Content tick (default 20 s) or a page change | Capture `document.body.innerText` for the current browser sample, deduped by hash. | — |
 | Idle / sleep / lock crosses threshold | Close open sample cleanly; begin an away gap (below). | — |
 
 Row mapping (columns from [data-model.md](data-model.md)):

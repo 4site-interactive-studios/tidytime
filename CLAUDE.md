@@ -32,7 +32,7 @@ It **recommends; the human enters.** Full vision: [PLAN.md](PLAN.md).
    (`AXUIElement`), never `CGWindowList`'s window-name field. Requesting Screen Recording is
    a design failure.
 4. **Local-first, then cheap, then smart.** Every classification climbs the ladder only as
-   far as it must: rules → lexical → on-device model → economy cloud → Claude. Never call a
+   far as it must: rules → lexical → on-device model → economy cloud → escalation. Never call a
    cloud model for something a rule or a fuzzy match already answers.
 5. **Every cloud AI call is metered** into the `ai_calls` ledger (provider, model, tokens,
    cost, outcome) and bounded by budget caps. No un-ledgered, un-capped cloud call.
@@ -50,8 +50,9 @@ It **recommends; the human enters.** Full vision: [PLAN.md](PLAN.md).
 - **Project generation:** **XcodeGen** (`project.yml`) → `xcodebuild`. Logic lives in a
   local SwiftPM package (`Packages/TidyKit`); the Xcode app target is a thin shell for the
   Info.plist / entitlements / signing that SwiftPM can't express.
-- **Cloud AI:** Fireworks AI (OpenAI-compatible, economy tier) and Anthropic (Claude,
-  escalation). On-device: Apple Foundation Models.
+- **Cloud AI:** Fireworks AI (OpenAI-compatible) serves **both** the economy tier and escalation
+  by default (ADR 0013); the Anthropic/Claude direct path stays implemented but off. On-device:
+  Apple Foundation Models.
 - **Launch at login:** `SMAppService`. One process, no helpers/daemons in v1.
 
 ## Repo map
@@ -72,7 +73,9 @@ Packages/TidyKit/           All logic, as SwiftPM library targets:
   Sources/TidySuggest/        rounding, pools, meeting split, gap analysis, new-task proposals
   Sources/TidySurface/        SwiftUI: popover, nudges, away prompt, recap, dashboard, settings
 docs/                       All reference & build documentation — see docs/README.md
-scripts/                    Dev helpers (doc-link check, etc.)
+  docs/RUNNING.md             What was built + the end-to-end runbook (start here to run it)
+site/                       Companion single-page static site — keep its claims in sync with HEAD
+scripts/                    Dev helpers (doc-link check, coverage, etc.)
 ```
 
 Module responsibilities & dependency rules: [docs/architecture/module-map.md](docs/architecture/module-map.md).

@@ -1,5 +1,9 @@
 # 0008 — Fireworks economy tier + Claude escalation
 
+> **Superseded by [0013](0013-all-cloud-inference-through-fireworks.md)** (2026-07-25):
+> escalation now routes through Fireworks too. The record below is left as written — it says what
+> was true when it was accepted.
+
 Fireworks AI (open-weight models, OpenAI-compatible) is the cloud workhorse; Claude is invoked only
 on escalation; every cloud call is metered into a local ledger and bounded by budget caps.
 

@@ -40,7 +40,7 @@ given so the vocabulary stays consistent.
   (bootstrapped / learned / user-confirmed). Table `entity_signals`. User-confirmed rules
   outrank inferred ones.
 - **Rung** — a level of the [classification ladder](architecture/classification-ladder.md):
-  1 rules, 2 lexical, 3 on-device model, 4 economy cloud, 5 Claude escalation.
+  1 rules, 2 lexical, 3 on-device model, 4 economy cloud, 5 escalation (a stronger model, same vendor by default — ADR 0013).
 - **Sensitivity gate** — the local screen that keeps personnel/comp/legal/flagged content out
   of cloud payloads; **fails closed**. See [guardrails.md](guardrails.md) G2.
 - **Pool** — a per-project accumulator for sub-threshold *micro-work* fragments that roll up
@@ -80,7 +80,7 @@ given so the vocabulary stays consistent.
   with **guided generation** (`@Generable`). 4,096-token context → digests, not raw dumps.
 - **Economy cloud tier** — Fireworks AI serving open-weight models (Kimi K2.6, GLM-class)
   behind an OpenAI-compatible API; the cloud workhorse. Model names are **config**, not code.
-- **Claude escalation** — Anthropic's Claude, invoked only when the economy tier earns it
+- **Escalation (rung 5)** — a stronger adjudicator, invoked only when the economy tier earns it
   (schema-invalid, low confidence, transcript math doesn't reconcile, contradicts a strong
   prior) plus a decaying **calibration sample**.
 - **Calibration sample** — a small, decaying fraction of economy-tier outputs given a Claude

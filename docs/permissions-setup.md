@@ -318,7 +318,9 @@ Fathom didn't record still appear (Phase 3).
 
 ## 10. Fireworks AI + Anthropic — cloud AI keys (NOT needed until Phase 6)
 
-The cloud rungs: Fireworks = economy tier (rung 4), Anthropic = Claude escalation (rung 5). Skip
+The cloud rungs: Fireworks serves BOTH the economy tier (rung 4) and escalation (rung 5) by default
+(ADR 0013), so only a Fireworks key is required. An Anthropic key is optional — needed only if you
+switch `ai.routing.escalation` to the direct Claude path. Skip
 until Phase 6; the app runs the full local ladder (rungs 1–3) without them.
 
 **Click-path — Fireworks**

@@ -26,7 +26,7 @@ model path (see [understand-layer.md](understand-layer.md) §3).
 | 2 | Lexical matching | `TidyUnderstand` | free/local | `2` |
 | 3 | On-device model (Apple Foundation Models) | `TidyAI` router | free/local | `3` |
 | 4 | Economy cloud (Fireworks AI) | `TidyAI` router | metered $ | `4` |
-| 5 | Claude escalation (Anthropic) | `TidyAI` router | metered $$ | `5` |
+| 5 | Escalation — stronger adjudicator (Fireworks by default; ADR 0013) | `TidyAI` router | metered $$ | `5` |
 
 References for the model rungs:
 [apple-foundation-models.md](../reference/apple-foundation-models.md) (rung 3),
@@ -98,7 +98,7 @@ outputs; model names are **config strings**, not code (catalog churns) —
   utterance timestamps so the arithmetic is auditable
   ([suggestion-engine.md](suggestion-engine.md) meeting split).
 
-### Rung 5 — Claude escalation (Anthropic)
+### Rung 5 — Escalation (a stronger adjudicator; Fireworks by default per ADR 0013)
 
 Claude adjudicates only when rung 4 earns it (conditions below). The escalation prompt
 **carries the economy model's attempt** so Claude adjudicates rather than starts over.
@@ -188,7 +188,7 @@ cloud" into "stop at the best local result."
                            ┌─────────────────────────┘        │
                            ▼                                   ▼
                      classify rung=4          ┌───────────────────────────┐
-                                              │ RUNG 5: Claude escalation  │
+                                              │ RUNG 5: escalation         │
                                               │ (carries rung-4 attempt)   │
                                               └───────┬────────────────────┘
                                                       ▼
@@ -280,7 +280,7 @@ Existing, canonical in `config.example.json`:
 ```json
 "ai": {
   "routing":  { "session_batch": "fireworks-economy", "transcript_split": "fireworks-economy",
-                "note_draft": "fireworks-economy", "escalation": "anthropic-claude" },
+                "note_draft": "fireworks-economy", "escalation": "fireworks-escalation" },
   "budget":   { "daily_cap_usd": { "fireworks": 2.00, "anthropic": 2.00 },
                 "global_daily_cap_usd": 3.00 },
   "calibration": { "initial_sample_rate": 0.10, "decay_after_days": 21,

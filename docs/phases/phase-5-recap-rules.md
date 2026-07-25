@@ -545,5 +545,5 @@ Fixtures + in-memory GRDB, no live network (`make test`). Assert:
 - [ ] Phase docs / acceptance criteria reflect any behavior that changed during the build.
 
 **Next:** [Phase 6 — Intelligence](phase-6-intelligence.md) adds the sensitivity gate, the
-on-device rung, the metered cloud router + `ai_calls` ledger, economy-tier + Claude escalation,
+on-device rung, the metered cloud router + `ai_calls` ledger, economy tier + escalation,
 transcript-driven meeting splitting, nudges, and the dashboard — on top of this working recap.

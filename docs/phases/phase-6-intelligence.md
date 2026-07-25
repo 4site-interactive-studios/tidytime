@@ -2,7 +2,7 @@
 
 The phase that turns reconstructed sessions into cloud-quality, budgeted, auditable suggestions:
 the fail-closed sensitivity gate, the on-device model rung, the metered provider router, the
-Fireworks economy tier, Claude escalation, transcript splitting, nudges, learning-loop promotions,
+the Fireworks economy tier, escalation, transcript splitting, nudges, learning-loop promotions,
 and the dashboard's AI-overhead panel. Implements [PLAN §11 Phase 6](../../PLAN.md) (and §7 rungs 3–5).
 
 **Related:** [docs index](../README.md) · [PLAN.md §11](../../PLAN.md) ·
@@ -19,7 +19,7 @@ and the dashboard's AI-overhead panel. Implements [PLAN §11 Phase 6](../../PLAN
 
 ## Status: as built (2026-07-24)
 
-> ✅ **Logic complete + unit-tested** (117 tests total). Shipped: `v1-ai` migration + records/DAOs,
+> ✅ **Logic complete + unit-tested** (184 tests total as of the round-2 review). Shipped: `v1-ai` migration + records/DAOs,
 > the metered `AIRouter` (gate → route → budget → outbound → call → ledger; G2 + G5),
 > `BudgetPolicy`, `ModelCost`, `OutboundPayloadRecorder`, Fireworks/Anthropic providers, the Apple
 > on-device provider wired to the **real Foundation Models API** (runtime-gated), `NoteDrafter`,
@@ -52,7 +52,7 @@ router + ledger ship WITH the first cloud call, never after**:
 | 2 | **On-device rung** with guided generation | `TidyAI` | rung 3 (Apple Foundation Models) |
 | 3 | **Provider router + usage ledger** (`ai_calls`) + budget caps | `TidyAI` | routing + metering (G4, G5) |
 | 4 | **Economy tier** on Fireworks with batching | `TidyAI` | rung 4 (session batch, note draft) |
-| 5 | **Claude escalation + calibration sampling** | `TidyAI` | rung 5 (adjudication) |
+| 5 | **Escalation + calibration sampling** | `TidyAI` | rung 5 (adjudication) |
 | 6 | **Transcript splitting** (meeting split → per-client segments) | `TidyAI` + `TidySuggest` | rung 4 job `transcript_split` |
 | 7 | **Nudges** (`nudges` table) | `TidySurface` + `App/` | live surface |
 | 8 | **Learning-loop promotions** wired into rungs 3–5 and nudges | `TidyUnderstand` | few-shot + threshold tuning |
@@ -129,13 +129,15 @@ the Keychain via `SecretStore` (G6). Model slugs, endpoints, prices, and job→m
     "session_batch":    "fireworks-economy",
     "transcript_split": "fireworks-economy",
     "note_draft":       "fireworks-economy",
-    "escalation":       "anthropic-claude"
+    "escalation":       "fireworks-escalation"
   },
   "models": {
     "fireworks-economy": { "provider": "fireworks", "model": "accounts/fireworks/models/kimi-k2p6",
                            "endpoint": "https://api.fireworks.ai/inference/v1" },
+    "fireworks-escalation": { "provider": "fireworks", "model": "accounts/fireworks/models/deepseek-v3",
+                           "endpoint": "https://api.fireworks.ai/inference/v1" },
     "anthropic-claude":  { "provider": "anthropic", "model": "claude-opus-4-8",
-                           "endpoint": "https://api.anthropic.com/v1" }
+                           "endpoint": "https://api.anthropic.com/v1" }   // optional, off by default
   },
   "prices_usd_per_mtok": {
     "accounts/fireworks/models/kimi-k2p6": { "input": 0.95, "output": 4.00 },
@@ -357,7 +359,7 @@ suggestion's `rationale` carries the segment timestamp so the math is auditable.
 lexical prior, the split is handed to rung 5 (Claude) with the rung-4 attempt in the prompt; the
 `ai_calls` row for the rung-4 call gets `outcome='escalated'`.
 
-## 9. Claude escalation (rung 5) + calibration sampling
+## 9. Escalation (rung 5) + calibration sampling
 
 Claude adjudicates rung-4 output rather than starting over — the cheaper model's attempt rides along
 in the prompt. Triggers (PLAN §7): schema-invalid after one retry, self-reported confidence below

@@ -14,9 +14,15 @@ back. It's built for *backfill*, not stopwatch discipline: capture everything pa
 attribute afterward, and at end of day (or first thing the next morning) reconcile a whole day
 in a few minutes instead of an end-of-week archaeology session.
 
-> Status: **planning / scaffolding**. This repo currently contains the technical plan, the
-> reference documentation, and the project skeleton. Implementation proceeds phase by phase —
-> see [docs/phases/](docs/phases/).
+> **Status: library complete; app shell not yet wired.**
+> All seven phases (0–6) of logic ship as tested SwiftPM targets under `Packages/TidyKit`
+> — **184 unit tests, 0 failures**, ~82% line coverage — covering capture, the read-only Productive
+> mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, and the
+> metered AI router. The macOS app target in `App/` is **still the Phase-0 placeholder**: it renders
+> a static menu-bar item and does not yet host those modules, so `make run` launches a shell, not the
+> product. Live OS/TCC, OAuth, and cloud paths are compile-only here and verified manually on a Mac.
+> Start at **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
+> [docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md).
 
 ## Why it exists
 
@@ -38,7 +44,7 @@ CAPTURE (local)                 INGEST (read-only APIs)
                        ▼
         UNDERSTAND — sessionize · resolve entities ·
         classification ladder (rules → lexical → on-device
-        → economy cloud → Claude) · sensitivity gate
+        → economy cloud → escalation) · sensitivity gate
                        ▼
         SUGGEST — round · pool micro-work · split meetings ·
         gap-analyze vs. what's already logged

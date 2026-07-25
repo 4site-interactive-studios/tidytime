@@ -98,7 +98,7 @@ Model slugs, endpoints, prices, and job→model routing all live in
     "session_batch":    "fireworks-economy",
     "transcript_split": "fireworks-economy",
     "note_draft":       "fireworks-economy",
-    "escalation":       "anthropic-claude"
+    "escalation":       "fireworks-escalation"
   },
   "models": {
     "fireworks-economy": {

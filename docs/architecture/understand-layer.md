@@ -57,7 +57,14 @@ screen samples:
 ### 1.1 Screen sessions: collapse `activity_samples`
 
 Raw samples (one per app/window switch plus a 30 s heartbeat) collapse into sessions by a
-normalized **`context_key`**. Two knobs from `config.json` govern the collapse:
+normalized key. **Two levels, deliberately:** sessions GROUP on the fine
+`ContextKey.grouping` key (coarse key + normalized window/tab title +, when
+`capture.separate_chats_by_path` is on, the URL **path identity** — query/fragment dropped), while
+the coarse **`context_key`** (`web:<host>` / `app:<bundle>`) is what gets STORED on the session and
+is what rung-1 domain rules match. That split is why two chats in one window can attribute to
+different projects while host rules still converge. All normalization lives in
+`TidyCore.ContextSignature`, shared with capture gating and the context-switch metric.
+Two knobs from `config.json` govern the collapse:
 
 | Config key | Default | Meaning |
 |---|---|---|

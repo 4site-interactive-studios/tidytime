@@ -370,10 +370,19 @@ CREATE TABLE daily_rollups (
     per_client_json   TEXT NOT NULL DEFAULT '{}',
     capture_health    REAL,                        -- attributed / observed
     ai_cost_usd       REAL NOT NULL DEFAULT 0,
+    -- Added post-v1 by the `v2-context-switches` migration (see Migrations below):
+    context_switches      INTEGER NOT NULL DEFAULT 0,  -- distinct-context transitions that day
+    brief_switches        INTEGER NOT NULL DEFAULT 0,  -- transitions with dwell < 2 min (thrash)
+    longest_focus_seconds INTEGER NOT NULL DEFAULT 0,  -- longest uninterrupted attended run
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
 );
 ```
+
+The three context-switch columns are computed from the **raw `activity_samples` stream** (not from
+`sessions`), so sub-minute thrash still counts even though sessionization filters it. Unattended time
+is clipped out via `away_gaps` before the metric is computed — see
+[`ContextSwitchAnalyzer`](../../Packages/TidyKit/Sources/TidyStore/ContextSwitch.swift).
 
 ## AI ledger & nudges (Phase 6)
 
@@ -415,7 +424,27 @@ CREATE INDEX idx_nudges_context ON nudges(context_key);
 
 Use GRDB's `DatabaseMigrator`. **One registered migration per schema change, applied in
 order, and never edited once shipped** — a shipped migration is immutable history; corrections
-are a new migration. Suggested naming: `v1-baseline`, `v2-add-<thing>`, …
+are a new migration.
+
+### Registered migrations (as shipped)
+
+Authoritative list — mirrors
+[`Migrations.swift`](../../Packages/TidyKit/Sources/TidyStore/Migrations.swift), in order:
+
+| # | Identifier | Phase | Creates / changes |
+|---|---|---|---|
+| 1 | `v1-core` | 0 | `app_metadata` |
+| 2 | `v1-capture` | 1 | `activity_samples`, `page_snapshots`, `sessions`, `away_gaps`, `sync_state` |
+| 3 | `v1-productive` | 2 | `pd_companies`, `pd_projects`, `pd_tasks`, `pd_time_entries`, `pd_people` |
+| 4 | `v1-meetings` | 3 | `calendar_events`, `meetings`, `meeting_invitees`, `transcript_utterances` |
+| 5 | `v1-slack` | 4 | `slack_messages` |
+| 6 | `v1-understand` | 5 | `entity_signals`, `pools`, `suggestions`, `decisions`, `resolution_questions`, `daily_rollups` |
+| 7 | `v1-ai` | 6 | `ai_calls`, `nudges` |
+| 8 | `v2-context-switches` | post-v1 | adds 3 context-switch columns to `daily_rollups` |
+| 9 | `v2-page-snapshot-time-index` | post-v1 | index on `page_snapshots(captured_at)` |
+
+Migrations 8–9 are **additive and safe on a populated database** (new columns are `NOT NULL` with
+defaults); the upgrade path is covered by `MigrationUpgradePathTests`.
 
 ```swift
 var migrator = DatabaseMigrator()

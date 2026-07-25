@@ -29,7 +29,7 @@ Related: [../README.md](../README.md) · [../../PLAN.md](../../PLAN.md) ·
 | [0005](0005-swift-swiftui-xcodegen-swiftpm.md) | Swift/SwiftUI, XcodeGen shell + SwiftPM `TidyKit` | Accepted | — |
 | [0006](0006-grdb-sqlite-store.md) | GRDB + SQLite (WAL) single-file store | Accepted | G9 |
 | [0007](0007-accessibility-not-screen-recording.md) | Accessibility window titles, not Screen Recording | Accepted | G3 |
-| [0008](0008-fireworks-economy-plus-claude-escalation.md) | Fireworks economy tier + Claude escalation | Accepted | G5 |
+| [0008](0008-fireworks-economy-plus-claude-escalation.md) | Fireworks economy tier + Claude escalation | **Superseded by 0013** | G5 |
 | [0009](0009-stable-signing-for-tcc.md) | Stable code signature for TCC durability | Accepted | G7 |
 | [0010](0010-chrome-only-behind-browseradapter.md) | Chrome only in v1, behind `BrowserAdapter` | Accepted | — |
 | [0011](0011-no-timers-backfill-model.md) | No timers — passive capture + backfill | Accepted | — |

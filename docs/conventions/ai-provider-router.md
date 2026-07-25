@@ -91,7 +91,7 @@ code.** The canonical config shape lives in `config.example.json` and is documen
 ```json
 "ai": {
   "routing": { "session_batch": "fireworks-economy", "transcript_split": "fireworks-economy",
-               "note_draft": "fireworks-economy", "escalation": "anthropic-claude" },
+               "note_draft": "fireworks-economy", "escalation": "fireworks-escalation" },
   "models":  { "fireworks-economy": { "provider": "fireworks",
                  "model": "accounts/fireworks/models/kimi-k2p6",
                  "endpoint": "https://api.fireworks.ai/inference/v1" },
