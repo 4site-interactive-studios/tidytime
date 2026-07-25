@@ -1,6 +1,20 @@
 # Project-wide review — TidyTime v1
 
-**Date:** 2026-07-24 · **Method:** three independent reviewers (separate agents, no shared context),
+**Rounds**
+
+| Round | Date | Reviewed | Reviewers | Findings | Tests |
+|---|---|---|---|---|---|
+| 1 | 2026-07-24 | everything up to `034e6b8` | 3 | 12, all fixed | 117 → 130 |
+| 2 | 2026-07-25 | `034e6b8..dcffdac` (post-review delta + the never-reviewed site commit) | 4 | 52; HIGH/MED fixed | 152 → 184 |
+
+> **Current as of `46db539`.** Round 2 covers the four post-review enhancements *and* the companion
+> site, which round 1 predated. See [How this doc stays honest](#how-this-doc-stays-honest).
+
+---
+
+## Round 1 — project-wide (2026-07-24, `034e6b8`)
+
+**Method:** three independent reviewers (separate agents, no shared context),
 each with Bash + Read over the built codebase, verdicts via structured output.
 
 ## Verdicts
@@ -50,3 +64,87 @@ Everything actionable was **fixed** (not just noted). Each fix has a regression 
   guided generation, and calibration sampling remain scaffolded (see the Phase 6 retrospective).
 - Live cloud/on-device/OS calls require keys + a real Mac (macOS 26 + Apple Intelligence) and are
   verified manually, per the headless-build strategy in DECISIONS.md.
+
+---
+
+## Round 2 — post-review delta (2026-07-25, `034e6b8..dcffdac`)
+
+**Why a second round.** Five commits landed *after* round 1 — four enhancements (tiered
+change-gated heartbeat, the context-switching metric + Fireworks-only routing, finer within-app
+attribution, chat separation by URL path) plus the companion site itself. None had ever been
+reviewed; round 1's record was accurate for its sha and quietly became misleading.
+
+**Method.** Four **blind** reviewers (separate agents, no shared context, read-only, structured
+verdicts). Round 1 used three roles; round 2 added **R4 Documentation & site accuracy**, because
+stale documentation was the delta's dominant defect class and had no owner in the round-1 split.
+The known signature bug and the stale `data-model.md` were withheld and used as **calibration
+probes** — all four reviewers caught their probe, so their other findings were trusted.
+
+### Verdicts
+
+| Reviewer | Verdict | Headline |
+|---|---|---|
+| R1 Correctness | **fail** | Three divergent context-signature definitions; recap switch-count and longest-focus both wrong |
+| R2 Test coverage | pass_with_concerns | 152 pass, 81.8% line (core 90–92%) — round-1 figures hold; one dead flag, one unproven upgrade path, one vacuous assertion |
+| R3 Guardrails & DoD | **fail** | No G1–G9 breach, but the Fireworks reroute corrupts the escalation-rate metric; ADR reversed without supersession; schema change without its doc |
+| R4 Docs & site | **fail** | Site misstates AI routing, claims "7 phases complete" over a placeholder app shell, and says 117 tests vs 152 |
+
+**52 findings** — 7 HIGH, 25 MED, 14 LOW, 6 notes.
+
+### Test-count lineage
+
+A hardcoded number rots; an auditable chain doesn't:
+
+`117` (round 1) → `130` (round-1 fixes) → `135` → `141` → `147` → `152` (`dcffdac`) → **`184`** (round-2 fixes)
+
+Regenerate with `make test`, which prints `Executed N tests`. Coverage: **82.16% line** on
+`Sources/` (`make coverage`).
+
+### Findings & disposition (HIGH/MED)
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| R1-1 / R3-7 | HIGH | Three context-signature definitions disagreed; capture + metric used the **raw** URL/title while sessionization normalized them, so per-message query churn, `#fragments`, trailing slashes and unread-badge ticks each wrote a sample row, re-fired `innerText`, and **counted as a context switch** (measured: 10 churn samples → switchCount 9, fragmentation 100%) | **Fixed** `46db539` — `TidyCore.ContextSignature` is the single definition; `ContextSignatureTests.testCaptureAndMetricAgreeOnEveryCase` fails if they re-diverge |
+| R1-2 | HIGH | Unattended time counted as focus. Contiguous-by-construction samples mean idle gaps can never fire and `PowerObserver` is never constructed, so an overnight absence won `longestFocusSeconds` — and `writeRollup` **persisted** it, poisoning the trend series | **Fixed** `46db539` — `analyze(_:now:awayGaps:)` clips against away gaps, plus a generous 2h plausibility ceiling as fallback; open trailing sample clamped to `now` |
+| R3-1 | HIGH | Rerouting escalation onto Fireworks corrupted `escalationRate`: the economy tier was classified by *provider name*, so escalations landed in their own denominator | **Fixed** `46db539` — tier derived from the job, not the vendor |
+| R3-2 / R4-1 | HIGH | ADR 0008 still "Accepted" while HEAD contradicts it; 9+ docs and the site still said rung 5 = Claude | **Fixed** — new **ADR 0013**, 0008 superseded (banner + index), repo-wide sweep |
+| R4-2 | HIGH | Site presents phases 0–6 as shipping while `App/TidyTimeApp.swift` is a placeholder | **Fixed** (step 8) — retitled to library status + explicit app-shell note |
+| R4-3 / R3-3 | HIGH | `v2-context-switches` shipped without the required `data-model.md` update (DoD violation) | **Fixed** — columns documented + a table of all nine migrations |
+| R1-3 | MED | `pageTexts` time-scoped only, so a ≤120s absorbed detour could supply **100%** of a session's attribution evidence | **Fixed** `46db539` — host-scoped |
+| R1-6 | MED | `pageTexts` full-scanned `page_snapshots` per session | **Fixed** `46db539` — `v2-page-snapshot-time-index` |
+| R3-6 | MED | `captureContent()` fired on any signature change, unbounding page-snapshot writes | **Fixed** `46db539` — fires only on page change |
+| R1-7 / R2-01 | MED | `capture.separate_chats_by_path` read at **zero** production call sites — "configured ≠ enforced", the round-1 lesson, repeated four commits later | **Fixed** `46db539` — `ContextSignature.Policy(config.capture)` wired in `LiveCaptureController`; decode test added |
+| R2-02 | MED | v2 migration only ever tested on a **fresh** DB | **Fixed** `46db539` — `MigrationUpgradePathTests` migrates `upTo: "v1-ai"`, inserts a rollup, then migrates the rest |
+| R2-04 | MED | `testNativeSameTitleCannotSeparate` was **vacuous** (compared a pure function's output to itself) | **Fixed** `46db539` — asserts a concrete value |
+| R3-4 | MED | Rung 4→5 is no longer a cost escalation (the placeholder escalation model is *cheaper*), inverting the ladder's economics | **Documented** — ADR 0013 restates rungs 4/5 as a **capability** split; G4's local-first claim is unaffected |
+| R2-03 / R2-05 | MED | Uncovered branches: run-collapsing, open-sample fallback, `pageTexts` limit/order/window | **Fixed** `46db539` |
+| R4-4/5/7/8, R3-8/9, R4-6/9 | MED | Stale counts, README under-claiming, capture-layer heartbeat contradiction, understand-layer grouping, missing settings keys, unlinked site | **Fixed** — doc sweep commit |
+
+LOW findings and notes are recorded in the run transcript; the substantive ones are folded into
+the fixes above.
+
+### What round 2 confirmed
+
+- **G2 holds** — page text reaches only the local rungs 1–2; no path from `pageTexts` to a cloud
+  payload. The gate still owns the only route to a provider.
+- **G3 lint reaches the new files** — `ScreenRecordingGuardrailTests` scans all of
+  `Sources/TidyCapture`, including `CaptureCoordinator.swift`.
+- **G1, G5, G6** unchanged and still enforced structurally + by test.
+- Change-gating (once the signature was fixed) genuinely bounds `activity_samples` growth at a 1 s
+  poll — which is what makes G9's 90-day window safe.
+
+### Residual (documented, not blocking)
+
+- **The app shell is still the Phase-0 placeholder** — `LiveCaptureController`, `SessionBuildJob`
+  and every SwiftUI surface have no production construction site. This is the single largest gap
+  between "tested library" and "working product".
+- Idle-aware dwell relies on `away_gaps` being written, which needs `PowerObserver` wired in the app.
+- The escalation model slug and its price are placeholders (`_build_time_checks`).
+- `AXObserver`-driven within-app detection (instead of polling) remains the better long-term design.
+
+## How this doc stays honest
+
+**A review is only valid for the sha it ran against.** Round 1 was accurate when written and became
+misleading four commits later, with nobody touching it — that is the failure this round exists to
+correct. Each round above is stamped with the range it reviewed; **commits after that range are
+unreviewed by definition.** When adding a round, append — never rewrite an earlier round's findings.
