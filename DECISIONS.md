@@ -635,3 +635,24 @@ the instrument was trusted. Fixes:
   on every pipeline pass, and the CLI reports the app's permission lines from that snapshot plus its
   age. Live DB/config/logs come from the direct read.
 - `--snapshot` prints the app's snapshot verbatim; `--log-lines N` controls log tail depth.
+
+### 2026-07-26 · Signing resolved — and two false leads worth recording
+- **Outcome:** the app is now signed with a stable Apple Development identity
+  (`TeamIdentifier=QCUYJGV4J5`, `Identifier=com.4site.TidyTime`, chains to Apple Root CA, satisfies
+  its Designated Requirement). `dist/TidyTime.dmg` is a properly signed build; TCC grants will now
+  persist across rebuilds (G7).
+- **BUG in `find-team-id.sh` #1 — `-v` produces false negatives.** `security find-identity -v -p
+  codesigning` reported "0 valid identities" while a perfectly usable Apple Development certificate
+  existed (it had been created minutes earlier; `security verify-cert -p codeSign` succeeded on it).
+  The script now queries WITHOUT `-v` and verifies explicitly. This false negative sent a real user
+  round in circles re-doing Xcode steps that had already worked.
+- **BUG in `find-team-id.sh` #2 — the team id is the subject's `OU`, NOT the CN parenthetical.**
+  For `CN=Apple Development: … (QS9XD22TCK), OU=QCUYJGV4J5`, the DEVELOPMENT_TEAM is **QCUYJGV4J5**.
+  The original script grabbed the parenthetical (the *certificate* id) and would have written the
+  wrong value, producing a confusing signing failure. Now extracted via
+  `openssl x509 -noout -subject | grep -oE 'OU=[A-Z0-9]{10}'`.
+- **Self-signed fallback: works, but wasn't needed.** Creating one via OpenSSL 3.x requires
+  `-keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1`, or `security import` fails with
+  "MAC verification failed … (wrong password?)" — OpenSSL 3's default PKCS#12 MAC is rejected by
+  macOS. An imported self-signed cert also shows `CSSMERR_TP_NOT_TRUSTED` until trust is added.
+  The temporary cert was deleted once the Apple identity was confirmed.

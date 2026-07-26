@@ -5,7 +5,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==> Looking for a code-signing identity…"
-ids="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+# NOTE: no -v. A certificate created moments ago (or one whose chain the trust cache hasn't
+# refreshed) can be absent from the "valid identities" list while being perfectly usable —
+# that exact false negative sent a real user in circles. Verify explicitly below instead.
+ids="$(security find-identity -p codesigning 2>/dev/null || true)"
 if ! grep -q "Apple Development\|Mac Developer" <<<"$ids"; then
   cat <<'MSG'
 No Apple Development identity found.
@@ -24,8 +27,20 @@ MSG
 fi
 echo "$ids" | sed 's/^/    /'
 
-# The team id is the 10-char code in parentheses at the end of the identity name.
-team="$(grep -oE '\(([A-Z0-9]{10})\)' <<<"$ids" | head -1 | tr -d '()')"
+# The TEAM ID is the certificate subject's **OU** field — NOT the parenthetical in the common
+# name (that is the certificate id, and the two genuinely differ). Getting this wrong produces a
+# build that fails to sign with a confusing error.
+pem="$(mktemp)"; trap 'rm -f "$pem"' EXIT
+security find-certificate -c "Apple Development" -p > "$pem" 2>/dev/null || true
+team="$(openssl x509 -in "$pem" -noout -subject 2>/dev/null | grep -oE 'OU=[A-Z0-9]{10}' | cut -d= -f2 | head -1)"
+
+if [[ -n "$team" ]]; then
+  if security verify-cert -c "$pem" -p codeSign >/dev/null 2>&1; then
+    echo "==> certificate verifies for code signing"
+  else
+    echo "==> WARNING: certificate did not verify for code signing; signing may fail" >&2
+  fi
+fi
 if [[ -z "$team" ]]; then
   echo "Found an identity but couldn't parse a 10-character team id from it." >&2
   echo "Open Xcode → Settings → Accounts → your team row, and set DEVELOPMENT_TEAM manually." >&2
