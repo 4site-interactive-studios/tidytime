@@ -20,11 +20,38 @@ public struct PermissionInspector: PermissionStatusProviding {
     public func statuses() -> [String: String] {
         [
             "Accessibility": AXIsProcessTrusted() ? "granted" : "not granted",
+            "Code signature": Self.signatureStatus(),
             "Automation (Chrome)": Self.automationStatus(bundleId: KnownBundle.chrome),
             "Automation (System Events)": Self.automationStatus(bundleId: KnownBundle.systemEvents),
             "Notifications": Self.notificationStatus(),
             "Screen Recording": "not requested (by design — G3)",
         ]
+    }
+
+    /// The single most useful line in this view when permissions "won't stick".
+    ///
+    /// macOS records a TCC grant against the app's **code-signing identity**. An ad-hoc/linker-signed
+    /// build has no stable identity, so System Settings can show the toggle ON while
+    /// `AXIsProcessTrusted()` still returns false — the grant was recorded for a build that, as far
+    /// as macOS is concerned, is not this one. That is guardrail **G7**, and it is invisible unless
+    /// something says so out loud.
+    static func signatureStatus() -> String {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(Bundle.main.bundleURL as CFURL, [], &code) == errSecSuccess,
+              let code else { return "unknown" }
+        var infoRef: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &infoRef) == errSecSuccess,
+              let info = infoRef as? [String: Any] else { return "unknown" }
+
+        let flags = (info["flags"] as? UInt32) ?? 0
+        let isAdhoc = (flags & 0x2) != 0                      // kSecCodeSignatureAdhoc
+        let team = info["teamid"] as? String
+        let identifier = (info["identifier"] as? String) ?? "?"
+
+        if isAdhoc || team == nil {
+            return "⚠️ AD-HOC (id: \(identifier)) — TCC grants will NOT persist; set DEVELOPMENT_TEAM"
+        }
+        return "stable (team \(team!), id: \(identifier))"
     }
 
     enum KnownBundle {

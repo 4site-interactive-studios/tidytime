@@ -90,3 +90,21 @@ final class DiagnosticsFreshnessTests: XCTestCase {
         XCTAssertNil(summary["heartbeat_s"], "legacy heartbeat is superseded and would mislead a debugger")
     }
 }
+
+/// The read-only DB path the `tidytime-doctor` CLI uses must never mutate a database the app has open.
+final class ReadOnlyDatabaseTests: XCTestCase {
+    func testOpenReadOnlyReadsButCannotWrite() throws {
+        let dir = try TestSupport.makeTempDir(); defer { TestSupport.cleanup(dir) }
+        let url = dir.appendingPathComponent("t.sqlite")
+        // Create + populate with a normal (migrating) open.
+        do {
+            let db = try AppDatabase.open(at: url)
+            try db.setMetadata("greeting", "hello", clock: FixedClock(Date(timeIntervalSince1970: 1)))
+        }
+        let ro = try AppDatabase.openReadOnly(at: url)
+        XCTAssertEqual(try ro.metadata("greeting"), "hello", "read-only open must still read")
+        XCTAssertFalse(try ro.tableRowCounts().isEmpty)
+        XCTAssertThrowsError(try ro.setMetadata("greeting", "nope"),
+                             "a read-only handle must refuse writes")
+    }
+}

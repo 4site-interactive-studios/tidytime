@@ -139,6 +139,7 @@ public final class AppEnvironment: ObservableObject {
             _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             try refreshToday()
             try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
+            writeDiagnosticsSnapshot()
         } catch {
             logger.error("pipeline pass failed", ["error": "\(error)"])
             status = .attention("pipeline error")
@@ -170,6 +171,31 @@ public final class AppEnvironment: ObservableObject {
         let start = cal.startOfDay(for: date)
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
         return (Int64(start.timeIntervalSince1970), Int64(end.timeIntervalSince1970))
+    }
+
+    /// Write the redacted bundle to `paths.diagnosticsURL` so tooling (and an AI assistant) can read
+    /// current app state — including THIS PROCESS's TCC status, which an out-of-process CLI cannot
+    /// observe — without anyone clicking a button.
+    @discardableResult
+    public func writeDiagnosticsSnapshot() -> URL? {
+        let assembler = DiagnosticsAssembler(
+            db: db, config: config, secrets: secrets, logURL: paths.currentLogURL,
+            permissions: PermissionInspector())
+        var input = assembler.assemble()
+        input.extras["snapshot_written_at"] = ISO8601DateFormatter().string(from: Date())
+        input.extras["capturing"] = String(isCapturing)
+        for (source, readiness) in ingestReadiness {
+            input.extras["ingest.\(source.rawValue)"] = readiness.explanation
+        }
+        let known = SecretKey.all.compactMap { try? secrets.get($0) }.compactMap { $0 }
+        let text = DiagnosticsBundle.render(input, secrets: known)
+        do {
+            try text.write(to: paths.diagnosticsURL, atomically: true, encoding: .utf8)
+            return paths.diagnosticsURL
+        } catch {
+            logger.error("diagnostics snapshot failed", ["error": "\(error)"])
+            return nil
+        }
     }
 
     /// Assemble + copy the redacted diagnostic bundle (manual debug mode).

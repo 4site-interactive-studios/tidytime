@@ -37,6 +37,26 @@ public final class AppDatabase: Sendable {
         }
     }
 
+    /// Open WITHOUT migrating, read-only — for out-of-process tooling (the `tidytime-doctor` CLI)
+    /// that must never mutate a database the app may have open. WAL allows concurrent readers.
+    public static func openReadOnly(at url: URL) throws -> AppDatabase {
+        var config = Configuration()
+        config.readonly = true
+        config.busyMode = .timeout(5)
+        do {
+            let pool = try DatabasePool(path: url.path, configuration: config)
+            return AppDatabase(readOnly: pool, path: url.path)
+        } catch {
+            throw TidyError.database("read-only open failed at \(url.path): \(error)")
+        }
+    }
+
+    /// Read-only initializer that skips migrations.
+    private init(readOnly writer: any DatabaseWriter, path: String) {
+        self.writer = writer
+        self.path = path
+    }
+
     /// In-memory database for tests (fast, isolated, foreign keys on).
     public static func inMemory() throws -> AppDatabase {
         var config = Configuration()

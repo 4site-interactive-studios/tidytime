@@ -26,6 +26,9 @@ public struct AppPaths: Sendable, Equatable {
     public var logsDirectory: URL { supportDirectory.appendingPathComponent("logs", isDirectory: true) }
     public var currentLogURL: URL { logsDirectory.appendingPathComponent("tidytime.jsonl") }
     public var configURL: URL { supportDirectory.appendingPathComponent("config.json") }
+    /// Latest rendered diagnostic bundle, written by the running app. Readable by tooling (and by
+    /// an AI assistant) without a human clicking anything. Redacted like every other bundle.
+    public var diagnosticsURL: URL { supportDirectory.appendingPathComponent("diagnostics.md") }
 
     /// Create the support + logs directories if missing. Idempotent.
     @discardableResult

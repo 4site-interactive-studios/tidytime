@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "TidyAI", targets: ["TidyAI"]),
         .library(name: "TidySuggest", targets: ["TidySuggest"]),
         .library(name: "TidySurface", targets: ["TidySurface"]),
+        .executable(name: "tidytime-doctor", targets: ["tidytime-doctor"]),
     ],
     dependencies: [
         // SQLite toolkit. Confirm the latest 7.x at build time (docs/reference are dated).
@@ -42,6 +43,7 @@ let package = Package(
         .target(name: "TidyAI", dependencies: ["TidyCore", "TidyStore", "TidyIngest", "TidyUnderstand"], exclude: ["README.md"]),
         .target(name: "TidySuggest", dependencies: ["TidyCore", "TidyStore", "TidyUnderstand", "TidyAI"], exclude: ["README.md"]),
         .target(name: "TidySurface", dependencies: ["TidyCore", "TidyStore", "TidyCapture", "TidyIngest", "TidyUnderstand", "TidySuggest", "TidyAI"], exclude: ["README.md"]),
+        .executableTarget(name: "tidytime-doctor", dependencies: ["TidyCore", "TidyStore"]),
         .testTarget(
             name: "TidyKitTests",
             dependencies: [

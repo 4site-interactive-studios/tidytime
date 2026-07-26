@@ -603,3 +603,35 @@ the instrument was trusted. Fixes:
 - **Lesson (third instance this session):** "the module exists and is tested" ≠ "the app calls it."
   Capture, `separate_chats_by_path`, and now all four ingest engines each shipped tested-but-unreached.
   When wiring an app shell, enumerate every engine and assert a production construction site exists.
+
+### 2026-07-25 · G7 confirmed in the wild: ad-hoc signature silently voids TCC grants
+- **Symptom:** the user granted Accessibility, System Settings showed it enabled, but Doctor kept
+  reporting `not granted` and no window titles were captured.
+- **Evidence** (`codesign -dv` on the installed app):
+  `flags=0x20002(adhoc,linker-signed)`, `Signature=adhoc`, `TeamIdentifier=not set`,
+  and `Identifier=TidyTime` (not `com.4site.TidyTime` — a linker-signed default, so even the
+  identifier TCC records differs from the bundle id).
+- **Mechanism:** macOS records a TCC grant against the app's code-signing identity. Ad-hoc builds
+  have no stable identity, so the recorded grant does not match the running binary —
+  `AXIsProcessTrusted()` returns false while the UI toggle still shows ON. **This is exactly the
+  failure guardrail G7 exists to prevent**, observed for real rather than predicted.
+- **Fix for the user:** remove the stale System Settings entry, set `DEVELOPMENT_TEAM` in
+  `Local.xcconfig`, rebuild with `make dmg` (signed), reinstall, re-grant.
+- **Fix in the product:** `PermissionInspector.signatureStatus()` now reads the running bundle's
+  signing info via `SecCodeCopySigningInformation` and Doctor shows
+  `⚠️ AD-HOC … TCC grants will NOT persist; set DEVELOPMENT_TEAM`. The condition is no longer
+  invisible — the app diagnoses it.
+- **Lesson:** a guardrail documented but not *surfaced at runtime* still costs the user an hour.
+  Where a misconfiguration produces a confusing symptom, make the app say so.
+
+### 2026-07-25 · `tidytime-doctor` CLI — diagnostics without a human in the loop
+- **Why:** troubleshooting required the user to open the app, click "Copy diagnostics", and paste.
+- **What:** a new executable target (`swift run tidytime-doctor` / `make diagnose`) prints the same
+  redacted bundle. It opens the DB **read-only** (`AppDatabase.openReadOnly`, no migrations) so it can
+  never mutate a database the app has open; WAL permits the concurrent reader.
+- **Deliberate split, and the subtle part:** TCC status is **per-binary**, so the CLI asking about
+  Accessibility would report the *CLI's* answer, not the app's — actively misleading. Instead the
+  running app writes a redacted snapshot to `~/Library/Application Support/TidyTime/diagnostics.md`
+  on every pipeline pass, and the CLI reports the app's permission lines from that snapshot plus its
+  age. Live DB/config/logs come from the direct read.
+- `--snapshot` prints the app's snapshot verbatim; `--log-lines N` controls log tail depth.
