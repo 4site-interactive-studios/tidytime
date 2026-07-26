@@ -3,6 +3,7 @@ import SwiftUI
 import TidyCore
 import TidyStore
 import TidyCapture
+import TidyIngest
 import TidyUnderstand
 import TidySuggest
 import TidyAI
@@ -35,6 +36,13 @@ public final class AppEnvironment: ObservableObject {
     private var captureController: LiveCaptureController?
     #endif
     private var jobTimer: Timer?
+    private var ingestTimer: Timer?
+    /// Why each ingest source is or isn't running — surfaced in Doctor so a zero table is explained.
+    @Published public private(set) var ingestReadiness: [(IngestCoordinator.Source, IngestCoordinator.Readiness)] = []
+
+    public var ingest: IngestCoordinator {
+        IngestCoordinator(db: db, config: config, secrets: secrets, clock: SystemClock(), logger: logger)
+    }
 
     // MARK: Init
 
@@ -82,6 +90,7 @@ public final class AppEnvironment: ObservableObject {
         captureController?.stop()
         #endif
         jobTimer?.invalidate(); jobTimer = nil
+        ingestTimer?.invalidate(); ingestTimer = nil
         isCapturing = false
         status = .paused
         logger.info("capture paused")
@@ -99,6 +108,23 @@ public final class AppEnvironment: ObservableObject {
             MainActor.assumeIsolated { self?.runPipelineOnce() }
         }
         runPipelineOnce()
+
+        // Ingest runs on its own, slower cadence and never blocks capture.
+        ingestReadiness = ingest.readinessReport()
+        ingestTimer = Timer.scheduledTimer(withTimeInterval: 900, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.runIngestOnce() }
+        }
+        runIngestOnce()
+    }
+
+    /// Kick every ready ingest source once. Safe to call from a button.
+    public func runIngestOnce() {
+        let coordinator = ingest
+        Task { @MainActor in
+            await coordinator.runAll()
+            self.ingestReadiness = coordinator.readinessReport()
+            try? self.refreshToday()
+        }
     }
 
     /// One pass of the local (non-network, non-cloud) pipeline. Safe to call repeatedly.

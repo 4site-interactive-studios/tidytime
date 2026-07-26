@@ -41,7 +41,7 @@ let package = Package(
         // than duplicating it, and depends on TidyUnderstand for the SensitivityGate. Still acyclic.
         .target(name: "TidyAI", dependencies: ["TidyCore", "TidyStore", "TidyIngest", "TidyUnderstand"], exclude: ["README.md"]),
         .target(name: "TidySuggest", dependencies: ["TidyCore", "TidyStore", "TidyUnderstand", "TidyAI"], exclude: ["README.md"]),
-        .target(name: "TidySurface", dependencies: ["TidyCore", "TidyStore", "TidyCapture", "TidyUnderstand", "TidySuggest", "TidyAI"], exclude: ["README.md"]),
+        .target(name: "TidySurface", dependencies: ["TidyCore", "TidyStore", "TidyCapture", "TidyIngest", "TidyUnderstand", "TidySuggest", "TidyAI"], exclude: ["README.md"]),
         .testTarget(
             name: "TidyKitTests",
             dependencies: [

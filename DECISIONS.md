@@ -583,3 +583,23 @@ the instrument was trusted. Fixes:
   **output of the OAuth flow, never pasted**.
 - **Still true:** none of this is usable yet — there is no OAuth implementation, only the injected
   `accessToken` closure in `LiveGoogleCalendarClient`. Storing the client id/secret is preparation.
+
+### 2026-07-25 · First-run diagnostics exposed: ingest was never wired into the app
+- **Symptom (from a real diagnostic bundle):** capture worked — 378 `activity_samples` → 22
+  `sessions` — but `sync_state`, every `pd_*`, and `slack_messages` were **0** despite the user
+  having stored Productive/Fathom/Slack tokens.
+- **Cause:** when the app shell was wired (`b5db65a`) I connected capture + the LOCAL pipeline
+  (`SessionBuildJob` → `DayClassifier` → `RecapAssembler` → `RetentionJob`) but **never constructed
+  `ProductiveSync` / `FathomSync` / `SlackSync` / `CalendarSync`**. Nothing called them, so tokens
+  sat unused. A grep for those types across `Sources/TidySurface` + `App/` returned nothing.
+- **Fix:** `IngestCoordinator` (TidySurface) + a 15-minute timer in `AppEnvironment`. Crucially it
+  exposes a **pure, network-free `readiness(_:)`** that says *why* a source isn't running —
+  `missingCredential` / `missingConfig` / `disabledByKillSwitch` / `notImplemented`. Doctor renders
+  it, so a zero table now explains itself instead of looking broken. One failing source is logged to
+  `sync_state.last_error` and never blocks the others.
+- **Also fixed:** the diagnostic bundle's config summary still reported the legacy `heartbeat_s`
+  instead of the real `detection_interval_s`/`content_interval_s` — actively misleading in the one
+  artifact used for debugging. A test now asserts the legacy key is absent.
+- **Lesson (third instance this session):** "the module exists and is tested" ≠ "the app calls it."
+  Capture, `separate_chats_by_path`, and now all four ingest engines each shipped tested-but-unreached.
+  When wiring an app shell, enumerate every engine and assert a production construction site exists.

@@ -39,6 +39,21 @@ public struct DoctorView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
+                section("Ingest sources") {
+                    ForEach(env.ingestReadiness, id: \.0.rawValue) { source, readiness in
+                        HStack {
+                            Text(source.rawValue).font(.system(size: 12, design: .monospaced))
+                            Spacer()
+                            Text(readiness.explanation)
+                                .font(.system(size: 12))
+                                .foregroundStyle(readiness.canRun ? Color.green : .orange)
+                        }
+                    }
+                    Button("Sync now") { env.runIngestOnce() }.font(.caption)
+                    Text("A source with zero rows is idle for the reason shown — not silently broken.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 section("Paths") {
                     row("Database", env.paths.databaseURL.path)
                     row("Config", env.paths.configURL.path)
