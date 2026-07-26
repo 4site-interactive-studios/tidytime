@@ -42,14 +42,19 @@ All items live under Keychain service `com.4site.TidyTime` via `SecretStore`
 `KeychainSecretStore`). Account names below are the **suggested convention** (confirm against the
 `SecretStore` keys the app actually reads — see [open-items.md](open-items.md)).
 
-| Step | Secret | Keychain account (convention) | Non-secret companion in `config.json` |
+| Step | Secret | Keychain account (**exact**, must match `SecretKey`) | Non-secret companion in `config.json` |
 |---|---|---|---|
-| 6 | Productive personal token | `productive_token` | `organization.productive_organization_id` |
-| 7 | Fathom API key | `fathom_api_key` | — |
-| 8 | Slack user token (`xoxp-…`) | `slack_user_token` | — |
-| 9 | Google OAuth **refresh** token | `google_refresh_token` | OAuth *client id* is non-secret config |
-| 10 | Fireworks API key (`fw_…`) | `fireworks_api_key` | model slug + prices in `ai.*` |
-| 10 | Anthropic API key (`sk-ant-…`) | `anthropic_api_key` | model slug + prices in `ai.*` |
+| 6 | Productive personal token | `productive.token` | `organization.productive_organization_id` |
+| 7 | Fathom API key | `fathom.api_key` | — |
+| 8 | Slack user token (`xoxp-…`) | `slack.user_token` | — |
+| 9 | Google OAuth **refresh** token | `google.refresh_token` | OAuth *client id* is non-secret config |
+| 10 | Fireworks API key (`fw_…`) | `fireworks.api_key` | model slug + prices in `ai.*` |
+| 10 | Anthropic API key (`sk-ant-…`) | `anthropic.api_key` | model slug + prices in `ai.*` |
+
+All items use Keychain **service** `com.4site.TidyTime`. The account names above are exact — they are
+the `SecretKey` constants in
+[`SecretStore.swift`](../Packages/TidyKit/Sources/TidyCore/SecretStore.swift); a typo means the app
+silently sees no credential.
 
 The Google OAuth **client secret** for a Desktop-type client is not a true secret (it ships in the
 app), but the **refresh token** minted after first consent is — it goes in the Keychain
@@ -173,7 +178,7 @@ Read-only mirror of companies, projects, tasks, time entries, people
 3. In TidyTime **Settings**, paste the **token** (→ Keychain) and the **organization id** (→
    `config.json` `organization.productive_organization_id`; it is non-secret).
 
-**Secrets:** token → Keychain (`productive_token`); auth headers are `X-Auth-Token` +
+**Secrets:** token → Keychain (`productive.token`); auth headers are `X-Auth-Token` +
 `X-Organization-Id`. Org id → `config.json`.
 **Verify:** setup resolves your own `person_id` (a `GET /people?filter[email]=…`) and the popover
 shows today's logged total (Phase 2 acceptance).
@@ -194,7 +199,7 @@ Meeting recordings + transcripts; recording start/end is ground truth for meetin
      [open-items.md](open-items.md) item 1; TidyTime falls back to calendar-only meetings.
 2. In TidyTime **Settings**, paste the key.
 
-**Secret:** key → Keychain (`fathom_api_key`); auth header is `X-Api-Key`.
+**Secret:** key → Keychain (`fathom.api_key`); auth header is `X-Api-Key`.
 **Verify:** a live `GET /meetings` returns `200`; yesterday's meetings appear with recorded
 durations (Phase 3 acceptance).
 
@@ -266,7 +271,7 @@ Manifest schemas drift; the UI never does. Create the app **From scratch**, then
    immediately instead of as an opaque whole-manifest failure.
 2. **Install to Workspace** → **Allow** → copy the **User OAuth Token** (`xoxp-…`).
 
-**Secret:** `xoxp-…` user token → Keychain (`slack_user_token`); auth header is
+**Secret:** `xoxp-…` user token → Keychain (`slack.user_token`); auth header is
 `Authorization: Bearer xoxp-…`.
 **Verify:** `auth.test` returns your `user_id`; a morning of Slack activity (including messages
 sent from your phone) shows up attributed (Phase 4 acceptance).
@@ -298,7 +303,7 @@ Google's sensitive-scope review **and** the refresh token does not expire every 
 6. In TidyTime **Settings → Connect Google**, click sign-in: the app opens the system browser on a
    loopback redirect, you consent once, and it exchanges the code (PKCE) for tokens.
 
-**Secret:** the **refresh token** minted after consent → Keychain (`google_refresh_token`). The
+**Secret:** the **refresh token** minted after consent → Keychain (`google.refresh_token`). The
 client id is non-secret config.
 **Verify:** `events.list` returns the day's events; `syncToken` incremental sync works; meetings
 Fathom didn't record still appear (Phase 3).
@@ -331,8 +336,8 @@ until Phase 6; the app runs the full local ladder (rungs 1–3) without them.
    `cost_usd` ([open-items.md](open-items.md)).
 3. In TidyTime **Settings**, paste the Anthropic key.
 
-**Secrets:** `fw_…` → Keychain (`fireworks_api_key`, header `Authorization: Bearer fw_…`);
-`sk-ant-…` → Keychain (`anthropic_api_key`, headers `x-api-key` + `anthropic-version`). Model slugs,
+**Secrets:** `fw_…` → Keychain (`fireworks.api_key`, header `Authorization: Bearer fw_…`);
+`sk-ant-…` → Keychain (`anthropic.api_key`, headers `x-api-key` + `anthropic-version`). Model slugs,
 prices, routing, and budget caps are **non-secret** `config.json` (`ai.*`).
 **Verify:** first cloud call writes an `ai_calls` row whose `cost_usd` reconciles against the
 provider dashboard; budget caps drop the app to local-only when tripped (Phase 6 acceptance,

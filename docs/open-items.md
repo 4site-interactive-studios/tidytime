@@ -197,7 +197,7 @@ the same change ([CLAUDE.md](../CLAUDE.md) "When docs and reality disagree").
 - [ ] **Resolved** (date: ____ )
 - **Question:** What are the exact Keychain service/account keys `SecretStore` reads for each token?
 - **Why it matters:** [permissions-setup.md](permissions-setup.md) documents a **suggested** account
-  convention (`productive_token`, `fathom_api_key`, `slack_user_token`, `google_refresh_token`,
+  convention (`productive.token`, `fathom.api_key`, `slack.user_token`, `google.refresh_token`,
   `fireworks_api_key`, `anthropic_api_key`) but no doc canonically defines them; the setup checklist
   and the `KeychainSecretStore` implementation must agree or the app can't read a pasted secret.
 - **Resolve by:** **Phase 0** (Keychain plumbing) / each provider's phase.
