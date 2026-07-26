@@ -22,6 +22,25 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 SIGNED=1
+# A file full of placeholders is worse than no file: the build "succeeds" ad-hoc and TCC grants
+# silently stop persisting (guardrail G7 — observed in the wild 2026-07-25).
+if [[ -f "$root/Local.xcconfig" ]] && grep -qE '^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*(XXXXXXXXXX)?[[:space:]]*$' "$root/Local.xcconfig"; then
+  cat >&2 <<'TEAM'
+error: Local.xcconfig exists but DEVELOPMENT_TEAM is still the placeholder.
+
+  You need a signing identity first. Fastest route (free, ~2 minutes):
+    1. Open Xcode -> Settings (⌘,) -> Accounts
+    2. Click "+" -> Apple ID -> sign in with your Apple ID
+    3. Your name appears with team "(Personal Team)" — that is enough; no paid membership needed
+
+  Then run:  bash scripts/find-team-id.sh    (it will fill Local.xcconfig in for you)
+
+  Or build an unsigned preview anyway (TCC grants will NOT persist):
+    ALLOW_UNSIGNED=1 make dmg
+TEAM
+  exit 1
+fi
+
 if [[ ! -f "$root/Local.xcconfig" ]]; then
   if [[ "${ALLOW_UNSIGNED:-0}" == "1" ]]; then
     SIGNED=0

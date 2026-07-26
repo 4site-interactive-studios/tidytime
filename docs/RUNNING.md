@@ -89,10 +89,26 @@ make bootstrap
 ✔ Installs XcodeGen if needed and produces `TidyTime.xcodeproj`.
 
 **3 · Signing — do this BEFORE granting any permission.** macOS ties Accessibility/Automation grants
-to the **code signature**, so an unstable signature silently revokes everything you grant.
+to the **code signature**, so an unstable (ad-hoc) signature means grants never stick — System
+Settings shows the toggle ON while the app still reads "not granted". This is not hypothetical; it
+happened on the first real install.
+
+You need a signing identity, which requires an Apple ID in Xcode (free — **no paid Developer
+Program**):
+
+1. **Xcode → Settings (⌘,) → Accounts → "+" → Apple ID** → sign in
+2. Your name appears with a team called **"(Personal Team)"** — that's enough
+3. Then:
 ```bash
-cp Local.xcconfig.example Local.xcconfig   # then set DEVELOPMENT_TEAM
+bash scripts/find-team-id.sh   # finds your team id and writes Local.xcconfig
 ```
+`make dmg` refuses to run if `DEVELOPMENT_TEAM` is still the placeholder, rather than quietly
+producing an ad-hoc build. Doctor also reports the running app's signature, so an ad-hoc build
+announces itself.
+
+*No Apple ID at all?* A **self-signed** code-signing certificate (Keychain Access → Certificate
+Assistant → Create a Certificate → type "Code Signing") also gives a stable identity; set
+`CODE_SIGN_IDENTITY` to its name in `Local.xcconfig`.
 ✔ `codesign -dv --verbose=2 <built app>` shows a stable Team ID across rebuilds.
 → [build/signing-and-tcc.md](build/signing-and-tcc.md) · guardrail **G7**
 
