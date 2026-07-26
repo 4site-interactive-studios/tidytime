@@ -19,10 +19,9 @@ in a few minutes instead of an end-of-week archaeology session.
 > — **194 unit tests, 0 failures** — covering capture, the read-only Productive
 > mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, and the
 > metered AI router. The macOS app in `App/` now **hosts** those modules (menu bar popover, recap,
-> dashboard, settings, doctor) and type-checks against the real SDK (`make typecheck-app`) — but it
-> has **never been launched**: `xcodebuild` on the development machine needs
-> `sudo xcodebuild -runFirstLaunch` first, so no `.app` or `.dmg` has been produced yet. Live
-> OS/TCC, OAuth, and cloud paths are verified manually on a Mac.
+> dashboard, settings, doctor). It **builds and packages into a `.dmg`** — but has **never been
+> launched**, so every view, timer, and permission prompt is unexercised at runtime. Live OS/TCC,
+> OAuth, and cloud paths are verified manually on a Mac.
 > Start at **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
 > [docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md).
 

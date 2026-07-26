@@ -33,3 +33,6 @@ outbound-payloads*.log
 
 # --- SwiftPM local caches ---
 .swiftpm/xcode/
+
+# --- Packaged output (make dmg) ---
+dist/

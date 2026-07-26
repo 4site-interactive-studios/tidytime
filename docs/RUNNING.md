@@ -57,15 +57,13 @@ Architecture: [overview](architecture/overview.md) · [module map](architecture/
 Read this before trusting anything above. It is the difference between "tested library" and
 "working product".
 
-- **The app is wired but has never been RUN.** `App/TidyTimeApp.swift` now constructs
-  `AppEnvironment` and hosts the full surface, and the code **type-checks against the real SDK**
-  (`make typecheck-app`) — but nobody has launched it, granted it a permission, or seen a window.
-  You will be the first.
-- ⚠️ **`xcodebuild` is broken on the development machine**, so no `.app` or `.dmg` has ever been
-  produced. A stale `/Library/Developer/PrivateFrameworks/DVTDownloads.framework` (Jan 2026) doesn't
-  match Xcode 26.6. **Fix: `sudo xcodebuild -runFirstLaunch`** (needs your password). Until then
-  `make build` / `make run` / `make dmg` will fail before compiling anything — `make typecheck-app`
-  is the workaround that proves the code itself is sound.
+- **The app BUILDS (Debug + Release) and packages into a `.dmg`, but has never been LAUNCHED.**
+  Nobody has run it, granted it a permission, or seen a window. Every SwiftUI view, the capture
+  timers, and the whole permission flow are unexercised at runtime. You will be the first.
+- **The only dmg produced so far is an UNSIGNED PREVIEW** (`ALLOW_UNSIGNED=1 make dmg`). It is fine
+  for a look, but do **not** grant it permissions and depend on them: without a stable signature,
+  macOS revokes Accessibility/Automation grants on every rebuild (**G7**). For a build you can live
+  with, set `DEVELOPMENT_TEAM` in `Local.xcconfig` and run `make dmg`.
 - **Every SwiftUI / AppKit / OS-integration path is compile-only.** No test exercises the timers,
   `NSWorkspace` observers, Accessibility reads, AppleScript, or any view.
 - **No live API call has ever been made from this repo.** Productive, Fathom, Google, Slack, Fireworks
@@ -109,14 +107,18 @@ Set `organization.*` (Productive org + person id) and `google.*`; review `captur
 
 **5 · Build and run.**
 ```bash
-make typecheck-app     # proves App/ compiles even if xcodebuild is unhealthy
 make build && make run
 ```
+If `xcodebuild` fails to load a plug-in before compiling anything, run `xcodebuild -runFirstLaunch`
+(it reinstalls stale system components; it worked here **without** sudo). `make typecheck-app`
+compiles `App/` without xcodebuild if you need to isolate a code problem from a toolchain one.
 ✔ A menu-bar icon appears; clicking it shows today's observed/logged totals and opens Recap,
 Dashboard, Settings, and Doctor. **Open Doctor first** — it shows live permission status and has the
 one-click *Copy diagnostics* button.
-⚠️ If `xcodebuild` errors about a plug-in before compiling, run `sudo xcodebuild -runFirstLaunch`
-(see [What is NOT verified](#what-is-not-verified)).
+**Packaging:** `make dmg` produces `dist/TidyTime.dmg` (needs `Local.xcconfig`). To try it before
+setting a team id: `ALLOW_UNSIGNED=1 make dmg` → `dist/TidyTime-UNSIGNED-PREVIEW.dmg`. Either way the
+build is unnotarized, so first launch needs right-click → **Open** (or
+`xattr -d com.apple.quarantine /Applications/TidyTime.app`).
 
 **6 · Grant permissions** (in order): Accessibility → Automation (Chrome + System Events) → Chrome's
 *View → Developer → Allow JavaScript from Apple Events* → Notifications. Screen Recording is **never**
