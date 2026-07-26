@@ -47,7 +47,8 @@ All items live under Keychain service `com.4site.TidyTime` via `SecretStore`
 | 6 | Productive personal token | `productive.token` | `organization.productive_organization_id` |
 | 7 | Fathom API key | `fathom.api_key` | — |
 | 8 | Slack user token (`xoxp-…`) | `slack.user_token` | — |
-| 9 | Google OAuth **refresh** token | `google.refresh_token` | OAuth *client id* is non-secret config |
+| 9 | Google OAuth **client secret** | `google.client_secret` | `google.client_id` (non-secret) |
+| 9 | Google OAuth **refresh** token | `google.refresh_token` (⚠️ produced by sign-in, not pasted) | — |
 | 10 | Fireworks API key (`fw_…`) | `fireworks.api_key` | model slug + prices in `ai.*` |
 | 10 | Anthropic API key (`sk-ant-…`) | `anthropic.api_key` | model slug + prices in `ai.*` |
 
@@ -298,8 +299,15 @@ Google's sensitive-scope review **and** the refresh token does not expire every 
    verification, no Testing/Publishing gate.)
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → **Application type:
    Desktop app** → name it → **Create**.
-5. Copy the **Client ID** (and client secret — for a Desktop client this is not a true secret) into
-   the app's Google config.
+5. A Desktop OAuth client gives you **three** values that go to **three different places** —
+   this is the step that confuses people:
+
+   | Value | Goes where | Why |
+   |---|---|---|
+   | **Client ID** (`…apps.googleusercontent.com`) | `config.json` → `google.client_id` | Not a secret; ships inside every desktop app |
+   | **Client secret** | Settings → Credentials → `google.client_secret` | Google says it isn't a true secret for installed apps, but it's credential-shaped, so the Keychain (G6) |
+   | **Refresh token** | *nothing to paste* — `google.refresh_token` is the **output** of the sign-in flow | You never type this by hand |
+
 6. In TidyTime **Settings → Connect Google**, click sign-in: the app opens the system browser on a
    loopback redirect, you consent once, and it exchanges the code (PKCE) for tokens.
 

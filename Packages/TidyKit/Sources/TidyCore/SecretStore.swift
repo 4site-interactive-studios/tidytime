@@ -15,13 +15,19 @@ public protocol SecretStore: Sendable {
 public enum SecretKey {
     public static let productiveToken = "productive.token"
     public static let fathomKey = "fathom.api_key"
+    /// Desktop-type OAuth clients still send a client secret in the token exchange, even though
+    /// Google documents it as "not treated as a secret" for installed apps. Kept in the Keychain
+    /// anyway — it costs nothing and keeps credential-shaped things out of a plaintext file (G6).
+    public static let googleClientSecret = "google.client_secret"
+    /// OUTPUT of the OAuth flow, not something you paste by hand.
     public static let googleRefreshToken = "google.refresh_token"
     public static let slackUserToken = "slack.user_token"
     public static let fireworksKey = "fireworks.api_key"
     public static let anthropicKey = "anthropic.api_key"
 
     public static let all = [
-        productiveToken, fathomKey, googleRefreshToken, slackUserToken, fireworksKey, anthropicKey,
+        productiveToken, fathomKey, googleClientSecret, googleRefreshToken, slackUserToken,
+        fireworksKey, anthropicKey,
     ]
 }
 

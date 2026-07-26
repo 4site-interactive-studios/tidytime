@@ -567,3 +567,19 @@ the instrument was trusted. Fixes:
   run before committing so at least the syntax can't regress silently.
 - **Lesson:** vendor manifest schemas drift and validators are opaque. Prefer the smallest manifest
   that expresses intent, and always document the UI fallback.
+
+### 2026-07-25 · FIRST RUN of the app — and a Google credential gap it exposed
+- **The app launched for the first time** (user screenshot): Settings window renders, the Credentials
+  pane lists `SecretKey.all`, and Keychain writes succeed (5 of 6 stored). Large amounts of
+  previously "compile-only, never executed" code — AppEnvironment startup, DB open + migrations,
+  SettingsView, KeychainSecretStore.set — are now known-good at runtime.
+- **Gap found by the user:** permissions-setup.md said to put "the Client ID (and client secret)"
+  into "the app's Google config", but there was **nowhere for the client secret** — `config.google`
+  has only `client_id/calendar_id/scopes/internal_domains`, and `SecretKey` had no client-secret
+  entry. The instruction was impossible to follow.
+- **Fix:** added `SecretKey.googleClientSecret = "google.client_secret"` (appears in the Settings
+  picker automatically, since the UI iterates `SecretKey.all`), and rewrote the doc step as an
+  explicit three-way table: client id → `config.json`, client secret → Keychain, refresh token →
+  **output of the OAuth flow, never pasted**.
+- **Still true:** none of this is usable yet — there is no OAuth implementation, only the injected
+  `accessToken` closure in `LiveGoogleCalendarClient`. Storing the client id/secret is preparation.
