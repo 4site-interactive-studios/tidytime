@@ -553,3 +553,17 @@ the instrument was trusted. Fixes:
 - ⚠️ **Untested against the real Keychain** — unit tests use `InMemorySecretStore` (the real Keychain
   is environment-dependent and prompts). Verifying this needs two differently-signed builds on a real
   Mac; it is reasoned from documented Security-framework behavior, not observed.
+
+### 2026-07-25 · Slack app manifest was rejected as "invalidly formatted"
+- **Reported by the user** when following docs/permissions-setup.md §8.
+- **Causes (the doc's own ⚠️ build-time check firing):** (a) the doc led with a **YAML** manifest
+  containing `#` comments, but Slack's current editor is **JSON-only**; (b) the JSON variant carried
+  optional fields (`description`, `background_color`, `settings.interactivity`) and omitted
+  `settings.is_hosted`, diverging from Slack's own reference structure.
+- **Fix:** replaced both with ONE minimal JSON manifest mirroring Slack's reference exactly, and
+  added a **From scratch** fallback (add the ten user scopes in the UI), which bypasses manifest
+  validation entirely and surfaces a bad scope name individually rather than as an opaque failure.
+- A test-free doc assertion is still an assertion: a `python3 -c json.loads` check over the block was
+  run before committing so at least the syntax can't regress silently.
+- **Lesson:** vendor manifest schemas drift and validators are opaque. Prefer the smallest manifest
+  that expresses intent, and always document the UI fallback.

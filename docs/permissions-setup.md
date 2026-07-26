@@ -209,69 +209,62 @@ A **custom internal app** in the 4Site workspace with **user-token** scopes, pol
 **Click-path**
 1. Go to <https://api.slack.com/apps> → **Create New App → From an app manifest**.
 2. Select the **4Site** workspace.
-3. Paste the manifest below (toggle the editor to **YAML** or **JSON** to match) → **Next → Create**.
+3. Paste the **JSON** manifest below → **Next → Create**.
+   > ⚠️ Slack's manifest editor is **JSON-only** in the current UI. An earlier version of this doc
+   > led with a YAML manifest (with `#` comments); pasting that yields "invalid format".
 4. Left nav → **Install App → Install to Workspace** → **Allow**.
 5. Left nav → **OAuth & Permissions** → copy the **User OAuth Token** (starts with `xoxp-`).
-6. In TidyTime **Settings**, paste the `xoxp-…` token.
+6. In TidyTime **Settings → Credentials**, paste the `xoxp-…` token (goes to the Keychain).
 
-**Ready-to-paste manifest (YAML)** — declares exactly the user-token scopes from
-[reference/slack-api.md](reference/slack-api.md) §2:
-
-```yaml
-display_information:
-  name: TidyTime
-  description: Read-only personal time-capture assistant. Reads the installer's own message
-    history to attribute billable time. No posting, no bot.
-  background_color: "#1a1d21"
-oauth_config:
-  scopes:
-    user:
-      - channels:read       # list public channels the user is in
-      - channels:history    # read public-channel history
-      - groups:read         # list private channels the user is in
-      - groups:history      # read private-channel history
-      - im:read             # list the user's DMs
-      - im:history          # read DM history
-      - mpim:read           # list group DMs (multi-person IMs)
-      - mpim:history        # read group-DM history
-      - users:read          # resolve user ids -> display names
-      - users:read.email    # resolve user ids -> email (client signal via domain)
-settings:
-  org_deploy_enabled: false
-  socket_mode_enabled: false
-  token_rotation_enabled: false
-  interactivity:
-    is_enabled: false
-```
-
-Equivalent **JSON** manifest (same scopes):
+**Ready-to-paste manifest (JSON).** Deliberately minimal — it mirrors Slack's own reference
+structure exactly. Optional fields (`description`, `background_color`, `interactivity`) are omitted
+on purpose: they add validator surface for no benefit, and their presence was the likely cause of a
+reported "invalidly formatted" rejection.
 
 ```json
 {
-  "display_information": {
-    "name": "TidyTime",
-    "description": "Read-only personal time-capture assistant. Reads the installer's own message history to attribute billable time. No posting, no bot.",
-    "background_color": "#1a1d21"
-  },
-  "oauth_config": {
-    "scopes": {
-      "user": [
-        "channels:read", "channels:history",
-        "groups:read", "groups:history",
-        "im:read", "im:history",
-        "mpim:read", "mpim:history",
-        "users:read", "users:read.email"
-      ]
+    "display_information": {
+        "name": "TidyTime"
+    },
+    "oauth_config": {
+        "scopes": {
+            "user": [
+                "channels:read",
+                "channels:history",
+                "groups:read",
+                "groups:history",
+                "im:read",
+                "im:history",
+                "mpim:read",
+                "mpim:history",
+                "users:read",
+                "users:read.email"
+            ]
+        }
+    },
+    "settings": {
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "is_hosted": false,
+        "token_rotation_enabled": false
     }
-  },
-  "settings": {
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "token_rotation_enabled": false,
-    "interactivity": { "is_enabled": false }
-  }
 }
 ```
+
+Two details that matter:
+- Scopes go under **`user`**, not `bot`. A bot token only sees channels it's invited to; the point
+  here is the installer's own DMs and channels.
+- **`token_rotation_enabled: false`** — rotation issues short-lived tokens that must be refreshed,
+  and `LiveSlackClient` does not implement refresh. Enabling it will break auth after ~12h.
+
+### Fallback if the manifest is rejected (always works)
+
+Manifest schemas drift; the UI never does. Create the app **From scratch**, then:
+
+1. **OAuth & Permissions** → **User Token Scopes** (*not* Bot Token Scopes) → add the ten scopes
+   above one at a time. Slack validates each as you add it, so a renamed/deprecated scope shows up
+   immediately instead of as an opaque whole-manifest failure.
+2. **Install to Workspace** → **Allow** → copy the **User OAuth Token** (`xoxp-…`).
 
 **Secret:** `xoxp-…` user token → Keychain (`slack_user_token`); auth header is
 `Authorization: Bearer xoxp-…`.
