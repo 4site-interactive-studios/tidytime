@@ -526,3 +526,30 @@ the instrument was trusted. Fixes:
   by testing skip-logic against a **truly nonexistent** table name and adding a positive
   slack-purge test. **Lesson:** when a phase adds a table listed in
   `RetentionJob.timestampColumns`, expect earlier "absent table" assumptions to change.
+
+---
+
+## Keychain persistence across rebuilds (2026-07-25)
+
+### Tokens survive a reinstall; the risk is ACL, not storage
+- Items are `kSecClassGenericPassword` keyed on `kSecAttrService = "com.4site.TidyTime"` (a **fixed
+  string**) + account. They live in the user's login keychain, **not** in the app bundle — so
+  deleting/replacing `TidyTime.app`, or installing a fresh dmg, does **not** delete them. The lookup
+  still finds them.
+- What *can* break is the **ACL**. The app is non-sandboxed, so each item carries a trusted-app list.
+  A build with a **different code signature** (unsigned preview, or before `DEVELOPMENT_TEAM` was
+  set) is a different identity → macOS prompts ("wants to use your confidential information") or
+  returns `errSecAuthFailed`.
+- **Practical rule:** with a stable `DEVELOPMENT_TEAM`, rebuilds reuse the tokens silently. With
+  unsigned/ad-hoc builds, expect a prompt per new binary. Same root cause as the TCC/G7 problem —
+  signature stability — so fixing signing fixes both.
+
+### BUG FIXED: `set()` couldn't recover from an ACL mismatch
+- `SecItemUpdate` failing with anything other than `errSecItemNotFound` used to throw immediately.
+  So a user whose item belonged to a differently-signed build could neither READ the token nor
+  OVERWRITE it from Settings — a dead end whose only exit was Keychain Access.app.
+- Now: on `errSecAuthFailed` / `errSecInteractionNotAllowed` / `errSecDuplicateItem`, delete the item
+  and re-add it, and if that still fails, throw a message naming the actual cause and the manual fix.
+- ⚠️ **Untested against the real Keychain** — unit tests use `InMemorySecretStore` (the real Keychain
+  is environment-dependent and prompts). Verifying this needs two differently-signed builds on a real
+  Mac; it is reasoned from documented Security-framework behavior, not observed.

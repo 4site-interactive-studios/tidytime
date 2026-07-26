@@ -58,16 +58,42 @@ public struct KeychainSecretStore: SecretStore {
         let attrs: [String: Any] = [kSecValueData as String: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
         if updateStatus == errSecSuccess { return }
+
+        // Not present yet → plain add.
         if updateStatus == errSecItemNotFound {
-            var add = query
-            add[kSecValueData as String] = data
-            let addStatus = SecItemAdd(add as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw TidyError.secretStore("add failed for \(key): OSStatus \(addStatus)")
-            }
+            try add(query, data, key)
             return
         }
+
+        // The item exists but we couldn't update it. The common cause is an **ACL mismatch**: the
+        // item was created by a differently-signed build of this app (e.g. an unsigned preview, or
+        // before DEVELOPMENT_TEAM was set), so this binary isn't on its trusted-application list.
+        // Without this branch the user would be stuck — unable to read the token AND unable to
+        // overwrite it from Settings. Replace the item outright instead.
+        if updateStatus == errSecAuthFailed || updateStatus == errSecInteractionNotAllowed
+            || updateStatus == errSecDuplicateItem {
+            _ = SecItemDelete(query as CFDictionary)
+            do {
+                try add(query, data, key)
+                return
+            } catch {
+                throw TidyError.secretStore("""
+                    could not replace \(key) (OSStatus \(updateStatus)). This usually means the \
+                    Keychain item belongs to a differently-signed build. Delete the "\(service)" \
+                    entry for "\(key)" in Keychain Access.app and try again.
+                    """)
+            }
+        }
         throw TidyError.secretStore("update failed for \(key): OSStatus \(updateStatus)")
+    }
+
+    private func add(_ query: [String: Any], _ data: Data, _ key: String) throws {
+        var add = query
+        add[kSecValueData as String] = data
+        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw TidyError.secretStore("add failed for \(key): OSStatus \(addStatus)")
+        }
     }
 
     public func delete(_ key: String) throws {
