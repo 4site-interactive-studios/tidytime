@@ -706,3 +706,20 @@ the instrument was trusted. Fixes:
   after tccutil reset of SEVEN stale entries (one per build variant) + relaunch; DB shows titles
   flowing (29/39 samples titled). macOS accumulates one TCC row per binary variant and the Settings
   toggle doesn't say which variant it binds — surfaced in Doctor via the signature line.
+
+---
+
+## Doctor tips, guided credentials, Google sign-in (2026-07-27)
+
+### Doctor troubleshooting layer is PURE (2026-07-27)
+- `StatusSeverity.classify` + `DoctorTips.tip/hint` (TidySurface) are pure functions keyed to the
+  EXACT `PermissionInspector` status strings; `DoctorView` only renders them. Chosen because SwiftUI
+  is compile-only headlessly — every decision that matters is unit-tested (`DoctorTipsTests`).
+- Fixes the severity bug: `stable (…)` code signature rendered ORANGE (old `color(for:)` only
+  greened `granted*`). "app not running" and "provisional" are `.neutral` — benign, not warnings.
+- Tip prose encodes this session's real support rounds: stale TCC rows (remove with −, don't
+  toggle), relaunch-after-grant, ad-hoc → `find-team-id.sh`, org-id-from-the-URL trick, 429 = wait.
+- Ingest rows now surface `sync_state.last_error` (written by every engine since Phase 6, read by
+  NO view until now) with pattern-matched plain-language hints; ready-but-erroring renders red.
+- `Readiness.needsSignIn(String)` case added ahead of the flow wiring (commit C returns it):
+  distinct from `missingCredential` because the FIX is a button, not a paste.

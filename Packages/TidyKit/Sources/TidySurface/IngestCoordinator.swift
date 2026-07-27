@@ -35,6 +35,10 @@ public struct IngestCoordinator: Sendable {
         case missingConfig(String)
         case disabledByKillSwitch
         case notImplemented(String)
+        /// Credentials are configured but no refresh token exists yet (or it was revoked). Distinct
+        /// from `missingCredential` on purpose: the fix is a **button**, not a paste — the UI shows
+        /// "Sign in with Google" when it sees this case.
+        case needsSignIn(String)
 
         public var canRun: Bool { self == .ready }
         public var explanation: String {
@@ -44,6 +48,7 @@ public struct IngestCoordinator: Sendable {
             case .missingConfig(let k): return "config \(k) is unset"
             case .disabledByKillSwitch: return "disabled by kill switch"
             case .notImplemented(let why): return "not implemented — \(why)"
+            case .needsSignIn(let hint): return "needs sign-in — \(hint)"
             }
         }
     }

@@ -4,11 +4,17 @@ import TidyStore
 
 /// The `doctor` view: live permission status, on-disk paths, DB row counts, and the one-click
 /// redacted diagnostic bundle. This is what makes a silently-dropped TCC grant *visible* (G7).
+///
+/// Every non-green row carries a collapsed "How to fix" with plain-language steps
+/// (`DoctorTips` — pure and unit-tested; this view only renders its output).
 public struct DoctorView: View {
     @ObservedObject var env: AppEnvironment
     @State private var permissions: [String: String] = [:]
     @State private var counts: [String: Int] = [:]
+    @State private var lastErrors: [String: String] = [:]
     @State private var copied = false
+    /// Which "How to fix" groups are open, keyed by row name — survives the 3s reload timer.
+    @State private var expanded: Set<String> = []
 
     public init(env: AppEnvironment) { self.env = env }
 
@@ -19,12 +25,18 @@ public struct DoctorView: View {
 
                 section("Permissions") {
                     ForEach(permissions.keys.sorted(), id: \.self) { key in
-                        HStack {
-                            Text(key).font(.system(size: 12, design: .monospaced))
-                            Spacer()
-                            Text(permissions[key] ?? "—")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(color(for: permissions[key] ?? ""))
+                        let status = permissions[key] ?? "—"
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(key).font(.system(size: 12, design: .monospaced))
+                                Spacer()
+                                Text(status)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(color(for: status))
+                            }
+                            if let tip = DoctorTips.tip(forPermission: key, status: status) {
+                                tipGroup(id: "perm:\(key)", tip: tip)
+                            }
                         }
                     }
                     #if canImport(AppKit)
@@ -41,12 +53,20 @@ public struct DoctorView: View {
 
                 section("Ingest sources") {
                     ForEach(env.ingestReadiness, id: \.0.rawValue) { source, readiness in
-                        HStack {
-                            Text(source.rawValue).font(.system(size: 12, design: .monospaced))
-                            Spacer()
-                            Text(readiness.explanation)
-                                .font(.system(size: 12))
-                                .foregroundStyle(readiness.canRun ? Color.green : .orange)
+                        let lastError = lastErrors[source.rawValue]
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(source.rawValue).font(.system(size: 12, design: .monospaced))
+                                Spacer()
+                                Text(readiness.explanation)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(ingestColor(readiness, lastError: lastError))
+                            }
+                            if let tip = DoctorTips.tip(for: source, readiness: readiness,
+                                                        lastError: lastError,
+                                                        configPath: env.paths.configURL.path) {
+                                tipGroup(id: "ingest:\(source.rawValue)", tip: tip)
+                            }
                         }
                     }
                     Button("Sync now") { env.runIngestOnce() }.font(.caption)
@@ -88,15 +108,70 @@ public struct DoctorView: View {
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in reload() }
     }
 
+    // MARK: helpers
+
+    /// A collapsed, clearly-labeled fix-it panel. Expansion state keyed by a stable id so the
+    /// reload timer doesn't slam groups shut while someone is reading.
+    @ViewBuilder private func tipGroup(id: String, tip: TroubleshootingTip) -> some View {
+        DisclosureGroup(isExpanded: Binding(
+            get: { expanded.contains(id) },
+            set: { open in if open { expanded.insert(id) } else { expanded.remove(id) } }
+        )) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(tip.steps.enumerated()), id: \.offset) { i, step in
+                    Text("\(i + 1). \(step)")
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                #if canImport(AppKit)
+                if let pane = tip.settingsPane {
+                    Button("Open System Settings") { PermissionInspector.openSettings(pane: pane) }
+                        .font(.caption)
+                }
+                if tip.offersGoogleSignIn {
+                    googleSignInControls
+                }
+                #endif
+            }
+            .padding(.top, 2)
+        } label: {
+            Text("How to fix").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.leading, 8)
+    }
+
+    /// Rendered inside the google needs-sign-in tip. Kept as a separate property so commit C can
+    /// wire the real sign-in action; until then it points at Settings.
+    @ViewBuilder private var googleSignInControls: some View {
+        Text("The Sign in with Google button is in Settings → Credentials.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
     private func reload() {
         permissions = PermissionInspector().statuses()
         counts = (try? env.db.tableRowCounts()) ?? [:]
+        var errors: [String: String] = [:]
+        for source in IngestCoordinator.Source.allCases {
+            if let error = ((try? env.db.syncState(source.rawValue)) ?? nil)?.lastError, !error.isEmpty {
+                errors[source.rawValue] = error
+            }
+        }
+        lastErrors = errors
     }
 
     private func color(for status: String) -> Color {
-        if status.hasPrefix("granted") { return .green }
-        if status.hasPrefix("denied") { return .red }
-        if status.contains("not requested") { return .secondary }
+        switch StatusSeverity.classify(status) {
+        case .healthy: return .green
+        case .broken: return .red
+        case .neutral: return .secondary
+        case .attention: return .orange
+        }
+    }
+
+    /// Ready sources render green — unless their last sync recorded an error, which is worth red.
+    private func ingestColor(_ readiness: IngestCoordinator.Readiness, lastError: String?) -> Color {
+        if readiness.canRun { return lastError == nil ? .green : .red }
         return .orange
     }
 
