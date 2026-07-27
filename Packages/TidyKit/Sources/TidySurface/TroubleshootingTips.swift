@@ -209,20 +209,10 @@ public enum DoctorTips {
     }
 }
 
-/// Tiny naming shim so ingest tips can say "Slack user token" instead of "slack.user_token" before
-/// commit 3 lands the full `CredentialCatalog`. The catalog supersedes this table's data (a test
-/// keeps them consistent once both exist).
+/// Human names for keys, delegating to `CredentialCatalog` so tips and the Credentials tab can
+/// never drift apart.
 public enum CredentialCatalogNaming {
     public static func displayName(for key: String) -> String {
-        switch key {
-        case SecretKey.productiveToken: return "Productive API token"
-        case SecretKey.fathomKey: return "Fathom API key"
-        case SecretKey.slackUserToken: return "Slack user token"
-        case SecretKey.googleClientSecret: return "Google client secret"
-        case SecretKey.googleRefreshToken: return "Google sign-in"
-        case SecretKey.fireworksKey: return "Fireworks AI key"
-        case SecretKey.anthropicKey: return "Anthropic API key"
-        default: return key
-        }
+        CredentialCatalog.info(for: key)?.displayName ?? key
     }
 }

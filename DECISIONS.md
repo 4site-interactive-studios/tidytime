@@ -740,3 +740,20 @@ the instrument was trusted. Fixes:
   flips back to `.needsSignIn` instead of a permanently red row (tested).
 - `AppEnvironment.signInWithGoogle()` + `googleSignIn` published state; `.failed` sticks until the
   next attempt (an error should not evaporate unread, unlike a transient save note).
+
+### Guided Credentials tab (2026-07-27)
+- `CredentialCatalog` (TidySurface): per-key display name, purpose line, ordered plain-language
+  steps, help links, and a `pastable` flag. Prose simplified from docs/permissions-setup.md §6–10 —
+  BOTH must change together (stated convention; a test can't diff markdown).
+- **Lock-once-set is the picker**, not a Keychain restriction: `pickerChoices(present:)` filters
+  stored keys out of the add form, so overwriting requires an explicit Remove first. UI-only by
+  design — `SecretStore.set` stays callable so `GoogleAuthenticator` and token rotation keep
+  writing programmatically.
+- `google.refresh_token` is `pastable: false` — it never appears as a paste target (it was in the
+  picker before, inviting users to hand-type flow output). Its row's Remove is "Sign out".
+- Removal drives a `.confirmationDialog` (destructive role) — first confirmation UI in the app.
+- Fixed: `entryKey` was hardcoded to `productive.token` and broke as soon as that key was set; it
+  now initializes to the first open picker choice and advances after each save
+  (`nextSelection(afterSaving:present:)`, tested).
+- Tests pin catalog completeness against `SecretKey.all` (an 8th key without metadata fails CI),
+  no-raw-dotted-keys-in-prose, and the lock/unlock picker rules.

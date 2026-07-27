@@ -141,10 +141,12 @@ build is unnotarized, so first launch needs right-click → **Open** (or
 requested (**G3**). → [permissions-setup.md](permissions-setup.md) §§1–5 (11 steps, ~30 min)
 
 **7 · Tokens & OAuth.** Productive personal token + org id · Fathom API key · Slack internal app
-(manifest → install → user token) · Google **Internal**-type OAuth client → sign in once · Fireworks
-key (Anthropic optional, only if you switch `ai.routing.escalation` to the direct path).
-All land in the **Keychain**. → [permissions-setup.md](permissions-setup.md) §§6–10 ·
-billing decision in [open-items.md](open-items.md)
+(manifest → install → user token) · Google **Internal**-type OAuth client → then click **Sign in
+with Google** in Settings → Credentials (opens the browser, captures the redirect on localhost,
+stores the refresh token; the Credentials tab walks every key step-by-step in plain language) ·
+Fireworks key (Anthropic optional, only if you switch `ai.routing.escalation` to the direct path).
+All land in the **Keychain**. A set key is locked until removed, and removal asks first.
+→ [permissions-setup.md](permissions-setup.md) §§6–10 · billing decision in [open-items.md](open-items.md)
 
 **8 · Verify.**
 ```bash
