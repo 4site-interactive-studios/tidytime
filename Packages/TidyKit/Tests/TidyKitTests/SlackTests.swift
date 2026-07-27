@@ -37,8 +37,27 @@ final class SlackTSTests: XCTestCase {
 }
 
 final class SlackSessionizerTests: XCTestCase {
-    private func msg(_ ts: Int64) -> SlackMessage {
-        SlackMessage(conversationId: "C1", conversationType: "channel", ts: "\(ts).0", postedAt: ts, fetchedAt: 0)
+    private func msg(_ ts: Int64, mine: Bool = true) -> SlackMessage {
+        SlackMessage(conversationId: "C1", conversationType: "channel", ts: "\(ts).0", postedAt: ts,
+                     isSelf: mine, fetchedAt: 0)
+    }
+
+    /// Colleagues chatting in a channel is NOT the user's time. The first live sync built 12k
+    /// phantom sessions out of exactly this.
+    func testColleagueOnlyMessagesCreateNoSessions() {
+        let s = SlackSessionizer(gapSeconds: 900, nominalSeconds: 60)
+        let sessions = s.sessions(conversationId: "C1", name: "general",
+                                  messages: [msg(1000, mine: false), msg(1100, mine: false)], createdAt: 0)
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func testMixedThreadAnchorsOnOwnMessagesOnly() {
+        let s = SlackSessionizer(gapSeconds: 900, nominalSeconds: 60)
+        let sessions = s.sessions(conversationId: "C1", name: "help",
+                                  messages: [msg(1000, mine: false), msg(1200, mine: true),
+                                             msg(1300, mine: false), msg(5000, mine: false)], createdAt: 0)
+        XCTAssertEqual(sessions.count, 1)               // one cluster, from the single own message
+        XCTAssertEqual(sessions[0].startedAt, 1200)
     }
 
     func testSplitsOnGap() {
@@ -52,6 +71,30 @@ final class SlackSessionizerTests: XCTestCase {
         XCTAssertEqual(sessions[0].contextKey, "slack:C1")
         // single-message cluster gets a nominal duration
         XCTAssertEqual(sessions[1].durationSeconds, 60)
+    }
+}
+
+final class SlackFirstSyncBoundTests: XCTestCase {
+    /// No cursor used to mean "pull everything since 2014". Now the first pull is bounded.
+    func testFirstSyncSkipsMessagesOlderThanTheWindow() async throws {
+        let db = try AppDatabase.inMemory()
+        let now: Int64 = 100 * 86_400                       // day 100
+        let old: Int64 = 10 * 86_400                        // day 10 — far outside a 30d window
+        let recent: Int64 = 99 * 86_400                     // day 99
+        let client = FakeSlackClient(
+            selfUserId: "ME",
+            conversations: [SlackConversation(id: "C1", name: "x", type: "channel")],
+            messagesByConversation: ["C1": [
+                SlackMessageDTO(userId: "ME", text: "ancient", ts: "\(old).000100"),
+                SlackMessageDTO(userId: "ME", text: "fresh", ts: "\(recent).000100"),
+            ]])
+        let sync = SlackSync(client: client, db: db,
+                             clock: FixedClock(Date(timeIntervalSince1970: TimeInterval(now))),
+                             initialHistoryDays: 30)
+        _ = try await sync.run()
+        let stored = try db.slackMessages(conversationId: "C1")
+        XCTAssertEqual(stored.count, 1, "the pre-window message must not be ingested")
+        XCTAssertEqual(stored.first?.text, "fresh")
     }
 }
 

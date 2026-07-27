@@ -44,20 +44,40 @@ public struct LiveSlackClient: SlackClient {
     private let http: HTTPClient
     private let token: String
     private let baseURL: URL
+    private let backoff: Backoff
+    private let maxRetries: Int
+    private let sleeper: @Sendable (TimeInterval) async -> Void
 
-    public init(http: HTTPClient, token: String, baseURL: URL = URL(string: "https://slack.com/api")!) {
+    public init(http: HTTPClient, token: String, baseURL: URL = URL(string: "https://slack.com/api")!,
+                backoff: Backoff = Backoff(base: 2, cap: 60), maxRetries: Int = 3,
+                sleeper: @escaping @Sendable (TimeInterval) async -> Void = { s in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1_000_000_000))
+                }) {
         self.http = http; self.token = token; self.baseURL = baseURL
+        self.backoff = backoff; self.maxRetries = maxRetries; self.sleeper = sleeper
     }
 
+    // The first live run proved Slack WILL 429 a workspace-wide first sync, and this client had no
+    // backoff at all (Productive/Fathom did) — every 15-min cycle then re-slammed the limit and
+    // nothing ever completed. Honors Retry-After, which Slack always sends on 429.
     private func get(_ method: String, _ query: [URLQueryItem] = []) async throws -> Data {
         var comps = URLComponents(url: baseURL.appendingPathComponent(method), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { comps.queryItems = query }
         let request = HTTPRequest(method: "GET", url: comps.url!, headers: ["Authorization": "Bearer \(token)"])
-        let response = try await http.send(request)
-        guard (200..<300).contains(response.status) else {
-            throw IngestError.http(status: response.status, body: String(decoding: response.body, as: UTF8.self))
+        var attempt = 0
+        while true {
+            let response = try await http.send(request)
+            if response.status == 429, attempt < maxRetries {
+                let retryAfter = response.headers["Retry-After"].flatMap(TimeInterval.init)
+                await sleeper(backoff.delay(attempt: attempt, retryAfter: retryAfter))
+                attempt += 1
+                continue
+            }
+            guard (200..<300).contains(response.status) else {
+                throw IngestError.http(status: response.status, body: String(decoding: response.body, as: UTF8.self))
+            }
+            return response.body
         }
-        return response.body
     }
 
     private struct SlackError: Decodable { let ok: Bool; let error: String? }
@@ -188,7 +208,11 @@ public struct SlackSessionizer: Sendable {
     }
 
     public func sessions(conversationId: String, name: String?, messages: [SlackMessage], createdAt: Int64) -> [Session] {
-        let sorted = messages.sorted { $0.postedAt < $1.postedAt }
+        // Only the user's OWN messages define the user's time. The first live sync built 12k
+        // "sessions" out of colleagues chatting in channels the user never touched that day —
+        // phantom time on the timeline. Others' messages stay stored as context for notes, but a
+        // session exists only where the user actually participated.
+        let sorted = messages.filter(\.isSelf).sorted { $0.postedAt < $1.postedAt }
         guard !sorted.isEmpty else { return [] }
         var clusters: [[SlackMessage]] = []
         var current: [SlackMessage] = [sorted[0]]
@@ -217,21 +241,36 @@ public struct SlackSync: Sendable {
     private let db: AppDatabase
     private let clock: TidyClock
     private let sessionizer: SlackSessionizer
+    /// First-sync window. The first live run pulled TWELVE YEARS of workspace history (back to
+    /// 2014) because an absent cursor meant "everything". A bounded default keeps the first pull
+    /// proportionate to what the product can attribute (and inside the retention window anyway).
+    private let initialHistoryDays: Int
 
     public init(client: SlackClient, db: AppDatabase, clock: TidyClock = SystemClock(),
-                sessionizer: SlackSessionizer = SlackSessionizer()) {
+                sessionizer: SlackSessionizer = SlackSessionizer(), initialHistoryDays: Int = 30) {
         self.client = client; self.db = db; self.clock = clock; self.sessionizer = sessionizer
+        self.initialHistoryDays = initialHistoryDays
     }
 
     @discardableResult
     public func run() async throws -> Int {
         let now = Int64(clock.now.timeIntervalSince1970)
         let selfId = try await client.authTestUserId()
-        let names = try await client.userNames()
+        // users.list over a whole workspace is expensive; refresh the name map at most daily.
+        // Messages that arrive between refreshes keep user_id and just lack a display name.
+        var names: [String: String] = [:]
+        let usersState = (try? db.syncState("slack:users")) ?? nil
+        let usersFresh = usersState?.lastSuccessAt.map { now - $0 < 86_400 } ?? false
+        if !usersFresh {
+            names = try await client.userNames()
+            try db.saveSyncState(SyncState(source: "slack:users", cursor: nil,
+                                           lastRunAt: now, lastSuccessAt: now))
+        }
         let conversations = try await client.listConversations()
+        let firstSyncOldest = "\(now - Int64(initialHistoryDays) * 86_400).000000"
         var total = 0
         for conv in conversations {
-            let cursor = try db.latestSlackTs(conversationId: conv.id)
+            let cursor = try db.latestSlackTs(conversationId: conv.id) ?? firstSyncOldest
             let dtos = try await client.history(conversationId: conv.id, oldestTs: cursor)
             let records = dtos.map { dto in
                 SlackMessage(

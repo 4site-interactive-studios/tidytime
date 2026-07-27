@@ -82,6 +82,10 @@ public struct DoctorView: View {
         }
         .frame(minWidth: 520, minHeight: 520)
         .onAppear(perform: reload)
+        // A permission granted in System Settings while this window is open must show up without
+        // reopening it — a fresh grant looked "broken" to the first real user because this view
+        // only reloaded onAppear.
+        .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in reload() }
     }
 
     private func reload() {

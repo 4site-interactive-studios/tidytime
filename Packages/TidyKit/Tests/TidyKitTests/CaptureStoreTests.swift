@@ -103,6 +103,26 @@ final class RetentionTests: XCTestCase {
         XCTAssertEqual(counts["page_snapshots"], 0)         // cascaded with the old sample
     }
 
+    /// Slack sessions are derived from slack_messages, so they age out together. Screen sessions
+    /// are primary capture and persist forever.
+    func testSlackSessionsPurgeWithTheirMessages() throws {
+        let db = try AppDatabase.inMemory()
+        let now = Date(timeIntervalSince1970: 100 * 86_400)
+        let old = Int64(5 * 86_400), recent = Int64(99 * 86_400)
+        try db.insertSession(Session(kind: "slack", startedAt: old, endedAt: old + 60,
+                                     durationSeconds: 60, sourceRef: "C1", createdAt: old))
+        try db.insertSession(Session(kind: "screen", startedAt: old, endedAt: old + 60,
+                                     durationSeconds: 60, createdAt: old))
+        try db.insertSession(Session(kind: "slack", startedAt: recent, endedAt: recent + 60,
+                                     durationSeconds: 60, sourceRef: "C2", createdAt: recent))
+        let deleted = try RetentionJob().purge(db, retentionDays: ["slack_messages": 90], now: now)
+        XCTAssertEqual(deleted["sessions(kind=slack)"], 1)
+        let remaining = try db.sessions(from: 0, to: 200 * 86_400)
+        XCTAssertEqual(remaining.count, 2)
+        XCTAssertTrue(remaining.contains { $0.kind == "screen" }, "screen sessions persist forever")
+        XCTAssertTrue(remaining.contains { $0.kind == "slack" && $0.startedAt == recent })
+    }
+
     func testSkipsUnknownOrAbsentTables() throws {
         let db = try AppDatabase.inMemory()
         // A table with no configured timestamp column (and/or not present) is skipped silently.

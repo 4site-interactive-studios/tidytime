@@ -190,10 +190,14 @@ public struct FathomSync: Sendable {
     }
 
     @discardableResult
-    public func run(createdAfter: String? = nil) async throws -> Int {
+    public func run(createdAfter: String? = nil, defaultWindowDays: Int = 90) async throws -> Int {
         let now = Int64(clock.now.timeIntervalSince1970)
-        let existingCursor = try? db.syncState("fathom")?.cursor
-        let bundles = try await client.fetchMeetings(createdAfter: createdAfter ?? existingCursor)
+        let existingCursor = (try? db.syncState("fathom"))??.cursor
+        // No cursor yet → bound the first pull instead of fetching all history (transcripts are
+        // the heavy 30/min-limited call; an unbounded first pull 429-loops forever).
+        let fallback = ISO8601DateFormatter().string(
+            from: clock.now.addingTimeInterval(-Double(defaultWindowDays) * 86_400))
+        let bundles = try await client.fetchMeetings(createdAfter: createdAfter ?? existingCursor ?? fallback)
         var latestRecording: Int64 = 0
         for b in bundles {
             try db.upsertMeeting(b.meeting)

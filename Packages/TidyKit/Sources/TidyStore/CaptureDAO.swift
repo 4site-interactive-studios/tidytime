@@ -151,6 +151,17 @@ public struct RetentionJob: Sendable {
                     try database.execute(
                         sql: "DELETE FROM \"\(table)\" WHERE \"\(column)\" < ?", arguments: [cutoff])
                     deleted[table] = database.changesCount
+                    // Slack sessions are DERIVED data (rebuilt from slack_messages each sync), so
+                    // they age out with their source. Screen sessions still persist forever — the
+                    // "sessions persist" rule protects primary capture, not derivations whose
+                    // source was purged. Without this, an unbounded first sync left 12k historical
+                    // slack sessions on the timeline permanently.
+                    if table == "slack_messages", existing.contains("sessions") {
+                        try database.execute(
+                            sql: "DELETE FROM sessions WHERE kind = 'slack' AND started_at < ?",
+                            arguments: [cutoff])
+                        deleted["sessions(kind=slack)"] = database.changesCount
+                    }
                 } else if table == "transcript_utterances",
                           existing.contains("transcript_utterances"), existing.contains("meetings") {
                     // transcript_utterances has no absolute timestamp of its own (only start_seconds

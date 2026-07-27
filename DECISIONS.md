@@ -656,3 +656,53 @@ the instrument was trusted. Fixes:
   "MAC verification failed … (wrong password?)" — OpenSSL 3's default PKCS#12 MAC is rejected by
   macOS. An imported self-signed cert also shows `CSSMERR_TP_NOT_TRUSTED` until trust is added.
   The temporary cert was deleted once the Apple identity was confirmed.
+
+---
+
+## Google OAuth + first-live-run fixes (2026-07-27)
+
+### Google OAuth flow (loopback + PKCE) — contract verified against Google docs 2026-07-26
+- `ContextGoogleOAuth`: PKCE S256 (RFC 7636 Appendix B vector in tests), auth URL, code exchange,
+  refresh; `GoogleTokenProvider` actor fills the `accessToken` closure `LiveGoogleCalendarClient`
+  has had since Phase 3; refresh token in Keychain, access token cached to 60s before expiry.
+- **`prompt=consent` is opt-in, not default** — Google always returns a refresh token to installed
+  apps; unconditional consent would re-prompt every sign-in (verification agent caught my bug).
+- **`client_secret` sent on both token calls** (⚠️ build-time check: docs label it Optional but the
+  live endpoint reportedly rejects secret-less desktop exchanges). `127.0.0.1` not `localhost`.
+  Internal-type consent screen ⇒ NO 7-day refresh expiry. `invalid_grant` on refresh = terminal →
+  clear token, re-auth. Errors mapped: admin_policy_enforced / org_internal / disallowed_useragent.
+- **`NWListener` fails with EINVAL in this environment** (verified with a standalone probe, both
+  with and without `requiredInterfaceType=.loopback`) while raw BSD sockets work → LoopbackReceiver
+  is BSD sockets bound to INADDR_LOOPBACK explicitly. 
+- **`shutdown()` before `close()`** on the listening fd: on macOS close() alone does NOT reliably
+  wake a thread blocked in accept() — this exact hang left an xctest alive 13h46m.
+
+### The build-wedge epidemic, finally diagnosed
+- Symptom: every `swift build`/`swift test` "hung" for hours over two days.
+- Root cause: ONE hung xctest (LoopbackReceiver's pre-fix accept() deadlock) held the SwiftPM
+  package lock for ~14 HOURS; every subsequent build parked in mach_msg behind it. My cleanup kills
+  grepped only `swift-build|swift-frontend` — never `swift-test`/`xctest` — so the true holder
+  survived every purge, and each killed-while-queued build left another wedged driver behind it.
+- Lessons: (1) `ps` + `sample <pid>` + `lsof +D .build` beats guessing; 0% CPU + mach_msg = lock
+  wait, not compilation. (2) Grep the whole process FAMILY. (3) A python `str.replace` that prints
+  "done" unconditionally is a silent no-op waiting to happen — use the Edit tool (fails loudly) or
+  verify the substring changed.
+
+### First live Slack/Fathom run: three real bugs (user's diagnostic bundle)
+- **Unbounded first sync**: no cursor meant "everything" — 44,951 messages back to **2014**.
+  Now bounded: `initialHistoryDays` (default 30) for Slack; 90d `created_after` fallback for Fathom.
+- **No 429 backoff in LiveSlackClient** (the only client without it) → the 15-min cycle re-slammed
+  the limit forever. Now honors Retry-After. users.list refreshed at most daily (sync_state row).
+- **12,152 phantom sessions**: SlackSessionizer clustered EVERYONE's messages — colleagues chatting
+  became the user's "time". Sessions now anchor on `is_self` messages only; others' messages remain
+  stored as note context. Retention now also purges `kind='slack'` sessions older than the
+  slack_messages window — they are DERIVED data; the "sessions persist" rule protects primary
+  capture only. Existing 12k rows self-heal via the same purge.
+- **DoctorView refreshed only onAppear** — a granted permission looked "broken" until the window
+  was reopened (second support round-trip caused by a UI staleness, not TCC). Now refreshes every 3s.
+
+### Accessibility saga, closed
+- After the signed build: grant still "not showing" → evidence chain: fresh snapshot said granted
+  after tccutil reset of SEVEN stale entries (one per build variant) + relaunch; DB shows titles
+  flowing (29/39 samples titled). macOS accumulates one TCC row per binary variant and the Settings
+  toggle doesn't say which variant it binds — surfaced in Doctor via the signature line.
