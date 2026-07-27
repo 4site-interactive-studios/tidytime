@@ -78,22 +78,30 @@ public struct PermissionInspector: PermissionStatusProviding {
         }
     }
 
+    /// Cached because the underlying query blocks its caller (semaphore, up to 2s) and Doctor's
+    /// reload timer calls statuses() on the MAIN thread every 3s — an unlucky slow reply would
+    /// visibly hitch the UI (round-3 R1-C6). 15s TTL keeps Doctor honest enough while making the
+    /// steady-state cost zero.
+    private static let notificationCache = NotificationStatusCache()
+
     static func notificationStatus() -> String {
-        let sem = DispatchSemaphore(value: 0)
-        var result = "unknown"
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized: result = "granted"
-            case .denied: result = "denied"
-            case .notDetermined: result = "not determined"
-            case .provisional: result = "provisional"
-            case .ephemeral: result = "ephemeral"
-            @unknown default: result = "unknown"
+        notificationCache.value(ttl: 15) {
+            let sem = DispatchSemaphore(value: 0)
+            var result = "unknown"
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                switch settings.authorizationStatus {
+                case .authorized: result = "granted"
+                case .denied: result = "denied"
+                case .notDetermined: result = "not determined"
+                case .provisional: result = "provisional"
+                case .ephemeral: result = "ephemeral"
+                @unknown default: result = "unknown"
+                }
+                sem.signal()
             }
-            sem.signal()
+            _ = sem.wait(timeout: .now() + 2)
+            return result
         }
-        _ = sem.wait(timeout: .now() + 2)
-        return result
     }
 
     // MARK: Explicit prompts (user-initiated only)
@@ -122,3 +130,24 @@ public struct PermissionInspector: PermissionStatusProviding {
     public func statuses() -> [String: String] { [:] }
 }
 #endif
+
+/// Small TTL cache for the blocking notification-status probe.
+final class NotificationStatusCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cached: (value: String, at: Date)?
+
+    func value(ttl: TimeInterval, compute: () -> String) -> String {
+        lock.lock()
+        if let cached, Date().timeIntervalSince(cached.at) < ttl {
+            let v = cached.value
+            lock.unlock()
+            return v
+        }
+        lock.unlock()
+        let fresh = compute()
+        lock.lock()
+        cached = (fresh, Date())
+        lock.unlock()
+        return fresh
+    }
+}

@@ -757,3 +757,29 @@ the instrument was trusted. Fixes:
   (`nextSelection(afterSaving:present:)`, tested).
 - Tests pin catalog completeness against `SecretKey.all` (an 8th key without metadata fails CI),
   no-raw-dotted-keys-in-prose, and the lock/unlock picker rules.
+
+---
+
+## Round-3 review fixes (2026-07-27)
+
+### The findings worth remembering (14 fixed; full ledger in PROJECT-REVIEW.md round 3)
+- **Concurrent ingest runs were possible** (timer + Sync now + post-sign-in kick, no guard) and a
+  Slack first sync can outlive the 900s timer → interleaved delete+rebuild = duplicate sessions.
+  Fix: `ingestInFlight` guard in AppEnvironment. The refresh-token delete/rotation race (R1-C4)
+  disappears with serialization.
+- **Slack names stored during the users.list throttle were permanently nil** — the cursor never
+  re-fetches those messages. Fix: `backfillSlackUserNames` UPDATE after each refresh (never
+  overwrites an existing name).
+- **The menu-bar icon never updated after launch**: MenuBarExtra's label observes AppLauncher, but
+  the symbol derives from env.status and nothing forwarded env.objectWillChange. Fix: Combine sink.
+- **Redaction had two real holes found by my own new test**: (1) the failure path DELETES the
+  rejected refresh token before the catch computed the redaction list → the deleted value wasn't
+  redacted from an error echoing it — snapshot `known` BEFORE running each source; (2) a degenerate
+  short secret ("s") replaced every letter s in the message — `Redactor.minimumSecretLength = 6`.
+- **Google 410 GONE** (expired syncToken) now clears the cursor and re-fetches instead of failing
+  identically forever. **Loopback receiver** now accepts in a loop, skipping browser preconnect
+  sockets that carry no data (they aborted the whole sign-in). **make-dmg enforces** a non-ad-hoc
+  result on the signed path (was display-only). **notificationStatus** cached (15s TTL) — it blocks
+  up to 2s and Doctor polls on the main thread every 3s.
+- Coverage debt paid: the three first-live-run fixes (Slack 429 backoff, users.list throttle,
+  Fathom 90d bound) and the google happy-path sync now have tests. 268 → 279.

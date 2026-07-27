@@ -6,6 +6,7 @@
 // See docs/RUNNING.md and docs/architecture/module-map.md.
 import SwiftUI
 import AppKit
+import Combine
 import ServiceManagement
 import TidyCore
 import TidySurface
@@ -45,11 +46,18 @@ final class AppLauncher: ObservableObject {
 
     @Published private(set) var state: State = .starting
     private var windows: [AppWindow: NSWindow] = [:]
+    private var envObservation: AnyCancellable?
 
     init() {
         do {
             let env = try AppEnvironment()
             state = .ready(env)
+            // The MenuBarExtra label observes THIS object, but the icon derives from env.status —
+            // without forwarding, a pause or pipeline failure never updates the icon until
+            // relaunch (round-3 finding R1-C3).
+            envObservation = env.objectWillChange.sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
             env.startCapture()
             registerLaunchAtLogin()
         } catch {

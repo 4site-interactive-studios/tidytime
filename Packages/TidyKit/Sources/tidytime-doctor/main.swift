@@ -59,16 +59,8 @@ let secrets = KeychainSecretStore()
 // the authoritative answer; we surface its freshness instead of a misleading local reading.
 var permissions: [String: String] = [:]
 if let snapshot {
-    for line in snapshot.split(separator: "\n") where line.hasPrefix("- ") && line.contains(":") {
-        let body = line.dropFirst(2)
-        guard let colon = body.firstIndex(of: ":") else { continue }
-        let key = String(body[..<colon])
-        if ["Accessibility", "Automation (Chrome)", "Automation (System Events)",
-            "Notifications", "Screen Recording"].contains(key) {
-            permissions[key + " (from app snapshot)"] =
-                String(body[body.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-        }
-    }
+    permissions = DiagnosticsAssembler.permissions(fromSnapshot: snapshot)
+        .reduce(into: [:]) { $0[$1.key + " (from app snapshot)"] = $1.value }
 }
 if permissions.isEmpty {
     permissions["(app snapshot)"] = "none found — launch TidyTime to record its permission status"

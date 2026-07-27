@@ -265,6 +265,10 @@ public struct SlackSync: Sendable {
             names = try await client.userNames()
             try db.saveSyncState(SyncState(source: "slack:users", cursor: nil,
                                            lastRunAt: now, lastSuccessAt: now))
+            // Backfill: messages ingested while the throttle was active stored user_name = nil,
+            // and the incremental cursor means they are never re-fetched — without this they'd
+            // stay nameless forever (round-3 finding R1-C2).
+            try db.backfillSlackUserNames(names)
         }
         let conversations = try await client.listConversations()
         let firstSyncOldest = "\(now - Int64(initialHistoryDays) * 86_400).000000"

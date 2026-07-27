@@ -56,6 +56,24 @@ public struct DiagnosticsAssembler: Sendable {
 
     // MARK: Non-secret config summary
 
+    /// Parse the permission lines back out of a rendered diagnostics snapshot. Used by the
+    /// `tidytime-doctor` CLI, which cannot probe the APP's TCC status itself (per-binary) and so
+    /// reports what the app recorded. Extracted here so the round-trip is testable against
+    /// `DiagnosticsBundle.render` output (round-3 R2-6).
+    public static func permissions(fromSnapshot snapshot: String) -> [String: String] {
+        let known = ["Accessibility", "Automation (Chrome)", "Automation (System Events)",
+                     "Code signature", "Notifications", "Screen Recording"]
+        var out: [String: String] = [:]
+        for line in snapshot.split(separator: "\n") where line.hasPrefix("- ") {
+            let body = line.dropFirst(2)
+            guard let colon = body.firstIndex(of: ":") else { continue }
+            let key = String(body[..<colon])
+            guard known.contains(key) else { continue }
+            out[key] = String(body[body.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
+        return out
+    }
+
     public static func summarize(_ c: Config) -> [String: String] {
         [
             "org_id": c.organization.productiveOrganizationId.isEmpty ? "(unset)" : c.organization.productiveOrganizationId,

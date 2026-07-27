@@ -35,6 +35,19 @@ extension AppDatabase {
         }
     }
 
+    /// Fill in display names for messages stored while the users.list throttle was active —
+    /// their rows would otherwise stay nameless forever (the cursor never re-fetches them).
+    public func backfillSlackUserNames(_ names: [String: String]) throws {
+        guard !names.isEmpty else { return }
+        try writer.write { db in
+            for (userId, name) in names {
+                try db.execute(sql: """
+                    UPDATE slack_messages SET user_name = ? WHERE user_id = ? AND user_name IS NULL
+                    """, arguments: [name, userId])
+            }
+        }
+    }
+
     /// Remove `kind='slack'` sessions for a conversation before rebuilding (idempotent re-sync).
     public func deleteSlackSessions(conversationId: String) throws {
         try writer.write { db in

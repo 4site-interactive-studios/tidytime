@@ -101,9 +101,14 @@ public final class AppEnvironment: ObservableObject {
         self.paths = resolved
         self.config = ConfigLoader().loadOrDefault(from: resolved.configURL)
         self.db = try AppDatabase.open(at: resolved.databaseURL)
-        self.secrets = KeychainSecretStore()
+        let store = KeychainSecretStore()
+        self.secrets = store
         let sink: LogSink = (try? FileLogSink(url: resolved.currentLogURL)) ?? InMemoryLogSink()
-        self.logger = TidyLogger(category: "app", sink: sink)
+        // Exact-value redaction needs the actual secret strings; read them once and cache — the
+        // logger consults this closure per record (round-3 R3-3: pattern redaction alone misses
+        // secrets that don't match a known token shape).
+        let cachedSecrets: [String] = SecretKey.all.compactMap { (try? store.get($0)) ?? nil }
+        self.logger = TidyLogger(category: "app", sink: sink, secrets: { cachedSecrets })
         _ = try? db.installId()
         logger.info("environment ready", ["db": resolved.databaseURL.lastPathComponent])
     }
@@ -166,9 +171,21 @@ public final class AppEnvironment: ObservableObject {
     }
 
     /// Kick every ready ingest source once. Safe to call from a button.
+    /// True while an ingest pass is executing. A Slack first sync can legitimately outlive the
+    /// 900s timer (Retry-After sleeps × pages × conversations), and overlapping runs interleave
+    /// each conversation's delete+rebuild non-transactionally — producing duplicate slack sessions
+    /// — while doubling traffic against the very rate limits the sync respects (round-3 R1-C1).
+    @Published public private(set) var ingestInFlight = false
+
     public func runIngestOnce() {
+        guard !ingestInFlight else {
+            logger.debug("ingest skipped", ["reason": "a run is already in flight"])
+            return
+        }
+        ingestInFlight = true
         let coordinator = ingest
         Task { @MainActor in
+            defer { ingestInFlight = false }
             await coordinator.runAll()
             self.ingestReadiness = coordinator.readinessReport()
             try? self.refreshToday()

@@ -58,7 +58,7 @@ public struct IngestCoordinator: Sendable {
         let k = config.capture.killSwitches
         switch source {
         case .productive:
-            guard k.calendar || true else { return .disabledByKillSwitch }   // no dedicated switch
+            // No dedicated kill switch for Productive in v1 (it's the product's whole point).
             guard has(SecretKey.productiveToken) else { return .missingCredential(SecretKey.productiveToken) }
             guard !config.organization.productiveOrganizationId.isEmpty,
                   config.organization.productiveOrganizationId != "REPLACE_WITH_ORG_ID" else {
@@ -105,16 +105,25 @@ public struct IngestCoordinator: Sendable {
                 logger?.debug("ingest skipped", ["source": source.rawValue, "reason": r.explanation])
                 continue
             }
+            // Snapshot secret values BEFORE running: a failure path may DELETE a secret (e.g. a
+            // rejected refresh token) before we get here, and an error message can still echo the
+            // deleted value — computing the redaction list afterward would miss it (caught by
+            // LastErrorRedactionTests).
+            let known = SecretKey.all.compactMap { (try? secrets.get($0)) ?? nil }
             do {
                 try await run(source)
                 logger?.info("ingest ok", ["source": source.rawValue])
             } catch {
-                logger?.error("ingest failed", ["source": source.rawValue, "error": "\(error)"])
+                // last_error surfaces in Doctor and the diagnostics bundle, and provider error
+                // bodies can echo request material — redact before persisting (round-3 R3-2,
+                // G6 defense-in-depth). The logger redacts on its own already.
+                let safeError = Redactor.redact("\(error)", secrets: known)
+                logger?.error("ingest failed", ["source": source.rawValue, "error": safeError])
                 let now = Int64(clock.now.timeIntervalSince1970)
                 let prior = (try? db.syncState(source.rawValue)) ?? nil
                 try? db.saveSyncState(SyncState(source: source.rawValue, cursor: prior?.cursor,
                                                 lastRunAt: now, lastSuccessAt: prior?.lastSuccessAt,
-                                                lastError: "\(error)"))
+                                                lastError: safeError))
             }
         }
     }
@@ -123,7 +132,11 @@ public struct IngestCoordinator: Sendable {
         switch source {
         case .productive:
             let token = try secrets.get(SecretKey.productiveToken) ?? ""
-            guard let base = URL(string: config.productive.baseUrl) else { return }
+            guard let base = URL(string: config.productive.baseUrl) else {
+                // A malformed base URL used to silently no-op; throw so it lands in
+                // sync_state.last_error and Doctor can explain it (round-3 R1-C8).
+                throw TidyError.config("productive.base_url is not a valid URL: \(config.productive.baseUrl)")
+            }
             let builder = ProductiveRequestBuilder(baseURL: base,
                                                    organizationId: config.organization.productiveOrganizationId,
                                                    token: token)
@@ -155,15 +168,22 @@ public struct IngestCoordinator: Sendable {
                                                   internalDomains: config.google.internalDomains,
                                                   accessToken: provider.tokenClosure(), clock: clock)
             let (timeMin, timeMax) = Self.calendarWindow(daysBack: 30, daysForward: 60, clock: clock)
+            let sync = CalendarSync(client: client, db: db, clock: clock,
+                                    calendarId: config.google.calendarId)
             do {
-                try await CalendarSync(client: client, db: db, clock: clock,
-                                       calendarId: config.google.calendarId)
-                    .run(timeMin: timeMin, timeMax: timeMax)
+                try await sync.run(timeMin: timeMin, timeMax: timeMax)
             } catch let error as GoogleOAuthError {
                 // A rejected refresh token is terminal for that token: delete it so readiness flips
                 // to .needsSignIn and the UI shows the sign-in button instead of a permanent error.
                 if case .refreshRejected = error { try? secrets.delete(SecretKey.googleRefreshToken) }
                 throw error   // runAll records it in sync_state.last_error either way
+            } catch IngestError.http(410, _) {
+                // Google returns 410 GONE for an expired syncToken. Without clearing the cursor
+                // this would fail identically forever (round-3 R1-C7): reset and do one full
+                // re-window fetch.
+                try db.saveSyncState(SyncState(source: "google_calendar", cursor: nil,
+                                               lastRunAt: Int64(clock.now.timeIntervalSince1970)))
+                try await sync.run(timeMin: timeMin, timeMax: timeMax)
             }
         }
     }

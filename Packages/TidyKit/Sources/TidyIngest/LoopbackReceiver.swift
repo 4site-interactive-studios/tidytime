@@ -77,19 +77,28 @@ public final class LoopbackReceiver: @unchecked Sendable {
             }
 
             queue.async {
-                let client = accept(fd, nil, nil)
-                guard client >= 0 else {
-                    once.finish(.failure(TidyError.ingest("accept() failed: \(Self.errnoText())")))
-                    return
+                // Accept in a LOOP: browsers open speculative "preconnect" sockets that carry no
+                // data, and treating the first such connection as the callback failed the whole
+                // sign-in (round-3 R1-C5). Skip anything that isn't a GET; the timeout still
+                // bounds the whole wait because stop() closes the listening fd.
+                var client: Int32 = -1
+                var text = ""
+                while true {
+                    client = accept(fd, nil, nil)
+                    guard client >= 0 else {
+                        once.finish(.failure(TidyError.ingest("accept() failed: \(Self.errnoText())")))
+                        return
+                    }
+                    var buffer = [UInt8](repeating: 0, count: 8192)
+                    let n = read(client, &buffer, buffer.count)
+                    if n > 0, let request = String(bytes: buffer[0..<n], encoding: .utf8),
+                       request.hasPrefix("GET ") {
+                        text = request
+                        break
+                    }
+                    close(client)   // preconnect or junk — wait for the real redirect
                 }
                 defer { close(client) }
-
-                var buffer = [UInt8](repeating: 0, count: 8192)
-                let n = read(client, &buffer, buffer.count)
-                guard n > 0, let text = String(bytes: buffer[0..<n], encoding: .utf8) else {
-                    once.finish(.failure(TidyError.ingest("empty OAuth callback")))
-                    return
-                }
 
                 // Request line: "GET /?code=…&state=… HTTP/1.1"
                 let target = text.split(separator: " ").dropFirst().first.map(String.init) ?? ""

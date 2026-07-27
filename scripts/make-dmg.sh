@@ -86,7 +86,21 @@ APP="$DERIVED/Build/Products/$CONFIG/$APP_NAME.app"
 [[ -d "$APP" ]] || { echo "error: built app not found at $APP" >&2; exit 1; }
 
 echo "==> Verifying the signature (stability matters more than validity here)"
-codesign -dv --verbose=2 "$APP" 2>&1 | sed -n 's/^\(Authority\|TeamIdentifier\|Identifier\)/  &/p' || true
+siginfo="$(codesign -dv --verbose=2 "$APP" 2>&1 || true)"
+echo "$siginfo" | sed -n 's/^\(Authority\|TeamIdentifier\|Identifier\)/  &/p'
+# ENFORCE, don't just display (round-3 R3-1): on the signed path an ad-hoc result means the whole
+# point of the build is silently defeated — TCC grants won't persist (G7). Fail loudly instead.
+if [[ "$SIGNED" == "1" ]]; then
+  if echo "$siginfo" | grep -q "Signature=adhoc" || echo "$siginfo" | grep -q "TeamIdentifier=not set"; then
+    cat >&2 <<'BADSIG'
+error: the built app is AD-HOC signed even though a DEVELOPMENT_TEAM was configured.
+       Shipping it would silently break TCC grant persistence (guardrail G7).
+       Check Local.xcconfig and that the team's certificate is present:
+         security find-identity -p codesigning
+BADSIG
+    exit 1
+  fi
+fi
 
 echo "==> Staging"
 mkdir -p "$DIST"

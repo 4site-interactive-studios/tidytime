@@ -23,10 +23,15 @@ public enum Redactor {
 
     public static let mask = "***REDACTED***"
 
+    /// Below this length, exact-value replacement does more harm than good: a degenerate secret
+    /// like "s" would replace every letter s in the text (observed mangling "sign in again" into
+    /// unreadable output). Real tokens are far longer; short strings still get pattern redaction.
+    public static let minimumSecretLength = 6
+
     /// Redact `text`: first the explicitly-known `secrets`, then pattern matches.
     public static func redact(_ text: String, secrets: [String] = []) -> String {
         var out = text
-        for secret in secrets where !secret.isEmpty {
+        for secret in secrets where secret.count >= minimumSecretLength {
             out = out.replacingOccurrences(of: secret, with: mask)
         }
         for regex in patterns {
