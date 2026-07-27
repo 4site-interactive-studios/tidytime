@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 import TidyCore
 import TidyStore
 import TidyCapture
@@ -40,8 +43,53 @@ public final class AppEnvironment: ObservableObject {
     /// Why each ingest source is or isn't running — surfaced in Doctor so a zero table is explained.
     @Published public private(set) var ingestReadiness: [(IngestCoordinator.Source, IngestCoordinator.Readiness)] = []
 
+    public enum GoogleSignInState: Equatable, Sendable {
+        case idle, inProgress, succeeded, failed(String)
+    }
+    /// Drives the Sign in with Google button + its status caption. A `.failed` sticks until the
+    /// next attempt — unlike a transient save note, an error should not evaporate unread.
+    @Published public private(set) var googleSignIn: GoogleSignInState = .idle
+
     public var ingest: IngestCoordinator {
         IngestCoordinator(db: db, config: config, secrets: secrets, clock: SystemClock(), logger: logger)
+    }
+
+    /// Run the Google OAuth loopback flow: opens the default browser for consent, captures the
+    /// redirect locally, stores the refresh token in the Keychain, then kicks a first sync.
+    public func signInWithGoogle() {
+        guard googleSignIn != .inProgress else { return }
+        guard !config.google.clientId.isEmpty else {
+            googleSignIn = .failed("google.client_id is not set in config.json — see the instructions above")
+            return
+        }
+        googleSignIn = .inProgress
+        let oauth = GoogleOAuthConfig(
+            clientId: config.google.clientId,
+            clientSecret: (try? secrets.get(SecretKey.googleClientSecret)) ?? nil,
+            scopes: config.google.scopes)
+        #if canImport(AppKit)
+        let opener: GoogleAuthenticator.Opener = { url in
+            DispatchQueue.main.async { _ = NSWorkspace.shared.open(url) }
+        }
+        #else
+        let opener: GoogleAuthenticator.Opener = { _ in }
+        #endif
+        let authenticator = GoogleAuthenticator(config: oauth, http: URLSessionHTTPClient(),
+                                                secrets: secrets, opener: opener)
+        let log = logger
+        Task { @MainActor in
+            do {
+                _ = try await authenticator.signIn()
+                log.info("google sign-in succeeded", [:])
+                googleSignIn = .succeeded
+                runIngestOnce()   // first calendar sync + refreshes ingestReadiness
+            } catch {
+                let message = (error as? GoogleOAuthError)?.description ?? "\(error)"
+                log.error("google sign-in failed", ["error": message])
+                googleSignIn = .failed(message)
+                ingestReadiness = ingest.readinessReport()
+            }
+        }
     }
 
     // MARK: Init

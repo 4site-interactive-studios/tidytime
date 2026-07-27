@@ -723,3 +723,20 @@ the instrument was trusted. Fixes:
   NO view until now) with pattern-matched plain-language hints; ready-but-erroring renders red.
 - `Readiness.needsSignIn(String)` case added ahead of the flow wiring (commit C returns it):
   distinct from `missingCredential` because the FIX is a button, not a paste.
+
+### Google sign-in wired end to end (2026-07-27)
+- `GoogleAuthenticator` (TidyIngest): PKCE + CSRF state → real loopback receiver → injected browser
+  opener → callback parse → **state validated BEFORE the code is touched** (forged state never
+  reaches the token endpoint — tested) → exchange → refresh token to Keychain. On a
+  no-refresh-token response (previously-consented account) it retries ONCE with `prompt=consent`.
+- **The opener has NO default** — that's what keeps TidyIngest AppKit-free at compile time and makes
+  the flow end-to-end testable: tests inject an opener that plays the browser by hitting the real
+  socket (`GoogleAuthenticatorTests`, incl. happy path / forged state / denied / timeout / consent
+  retry). TidySurface supplies `NSWorkspace.shared.open`.
+- Readiness ladder for google: kill switch → client_id (config) → client_secret (Keychain) →
+  refresh token → ready; missing refresh token = `.needsSignIn` (a BUTTON, not a paste).
+  `run(.googleCalendar)` wires provider+client+CalendarSync with a −30d/+60d first-sync window
+  (future events feed nudge suppression); on `refreshRejected` the token is DELETED so readiness
+  flips back to `.needsSignIn` instead of a permanently red row (tested).
+- `AppEnvironment.signInWithGoogle()` + `googleSignIn` published state; `.failed` sticks until the
+  next attempt (an error should not evaporate unread, unlike a transient save note).

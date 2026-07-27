@@ -57,13 +57,13 @@ final class IngestReadinessTests: XCTestCase {
         XCTAssertEqual(c.readiness(.fathom), .disabledByKillSwitch)
     }
 
-    /// Google must say WHY it can't run — it has no OAuth flow, which is not the user's fault.
-    func testGoogleReportsNotImplementedRatherThanMissingCredential() throws {
+    /// The OAuth flow now exists, so google must never report "not implemented" — its full
+    /// readiness ladder is covered in GoogleReadinessTests.
+    func testGoogleNoLongerReportsNotImplemented() throws {
         let c = try coordinator(config: configuredOrg, secrets: [SecretKey.googleRefreshToken: "tok"])
-        guard case .notImplemented(let why) = c.readiness(.googleCalendar) else {
-            return XCTFail("expected notImplemented, got \(c.readiness(.googleCalendar))")
+        if case .notImplemented = c.readiness(.googleCalendar) {
+            XCTFail("google readiness must not be notImplemented now that sign-in exists")
         }
-        XCTAssertTrue(why.lowercased().contains("oauth"))
     }
 
     func testReadinessReportCoversEverySource() throws {

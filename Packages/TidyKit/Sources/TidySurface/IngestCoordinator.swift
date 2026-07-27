@@ -75,8 +75,16 @@ public struct IngestCoordinator: Sendable {
             return .ready
         case .googleCalendar:
             guard k.calendar else { return .disabledByKillSwitch }
-            // The client takes an injected access token; nothing produces one yet.
-            return .notImplemented("OAuth sign-in flow not built (see docs/RUNNING.md)")
+            guard !config.google.clientId.isEmpty else { return .missingConfig("google.client_id") }
+            // The client secret is needed by BOTH the sign-in and every refresh exchange — fail
+            // fast with the row that points at the right paste field.
+            guard has(SecretKey.googleClientSecret) else {
+                return .missingCredential(SecretKey.googleClientSecret)
+            }
+            guard has(SecretKey.googleRefreshToken) else {
+                return .needsSignIn("click Sign in with Google in Settings → Credentials")
+            }
+            return .ready
         }
     }
 
@@ -138,7 +146,25 @@ public struct IngestCoordinator: Sendable {
             try await SlackSync(client: client, db: db, clock: clock).run()
 
         case .googleCalendar:
-            return   // unreachable: readiness() reports .notImplemented
+            let oauth = GoogleOAuthConfig(
+                clientId: config.google.clientId,
+                clientSecret: (try? secrets.get(SecretKey.googleClientSecret)) ?? nil,
+                scopes: config.google.scopes)
+            let provider = GoogleTokenProvider(config: oauth, http: http, secrets: secrets, clock: clock)
+            let client = LiveGoogleCalendarClient(http: http,
+                                                  internalDomains: config.google.internalDomains,
+                                                  accessToken: provider.tokenClosure(), clock: clock)
+            let (timeMin, timeMax) = Self.calendarWindow(daysBack: 30, daysForward: 60, clock: clock)
+            do {
+                try await CalendarSync(client: client, db: db, clock: clock,
+                                       calendarId: config.google.calendarId)
+                    .run(timeMin: timeMin, timeMax: timeMax)
+            } catch let error as GoogleOAuthError {
+                // A rejected refresh token is terminal for that token: delete it so readiness flips
+                // to .needsSignIn and the UI shows the sign-in button instead of a permanent error.
+                if case .refreshRejected = error { try? secrets.delete(SecretKey.googleRefreshToken) }
+                throw error   // runAll records it in sync_state.last_error either way
+            }
         }
     }
 
@@ -149,5 +175,13 @@ public struct IngestCoordinator: Sendable {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = tz
         let now = clock.now
         return (f.string(from: now.addingTimeInterval(-Double(days) * 86_400)), f.string(from: now))
+    }
+
+    /// RFC 3339 UTC window for the FIRST calendar sync — past for meeting backfill, future for
+    /// nudge-suppression windows. Ignored by the client once a syncToken cursor exists.
+    public static func calendarWindow(daysBack: Int, daysForward: Int, clock: TidyClock) -> (String, String) {
+        let f = ISO8601DateFormatter()
+        return (f.string(from: clock.now.addingTimeInterval(-Double(daysBack) * 86_400)),
+                f.string(from: clock.now.addingTimeInterval(Double(daysForward) * 86_400)))
     }
 }

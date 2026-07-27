@@ -141,11 +141,20 @@ public struct DoctorView: View {
         .padding(.leading, 8)
     }
 
-    /// Rendered inside the google needs-sign-in tip. Kept as a separate property so commit C can
-    /// wire the real sign-in action; until then it points at Settings.
+    /// Rendered inside the google needs-sign-in tip.
     @ViewBuilder private var googleSignInControls: some View {
-        Text("The Sign in with Google button is in Settings → Credentials.")
-            .font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+            Button("Sign in with Google") { env.signInWithGoogle() }
+                .font(.caption)
+                .disabled(env.googleSignIn == .inProgress)
+            switch env.googleSignIn {
+            case .idle: EmptyView()
+            case .inProgress: Text("Check your browser…").font(.caption).foregroundStyle(.secondary)
+            case .succeeded: Text("Signed in ✓").font(.caption).foregroundStyle(.green)
+            case .failed(let message): Text(message).font(.caption).foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func reload() {
