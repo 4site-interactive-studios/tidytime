@@ -13,7 +13,7 @@ exact click-path for each and where its secret lands. Expands [PLAN.md](../PLAN.
 **Status:** build-ready checklist · **Applies to:** first-run setup (Phase 0 → Phase 6) ·
 **Secrets rule:** every token/key below goes in the **macOS Keychain** via `TidyCore`'s
 `SecretStore` — never in `config.json`, the DB, logs, or fixtures (guardrail
-[G6](guardrails.md#g6--secrets-live-in-the-keychain-only)) · **Last verified:** 2026-07-23
+[G6](guardrails.md#g6--secrets-live-in-the-keychain-only)) · **Last verified:** 2026-07-27 (Slack §8 corrected against a real manifest rejection 2026-07-25; Google §9 against the shipped sign-in flow)
 
 ---
 
@@ -308,7 +308,7 @@ Google's sensitive-scope review **and** the refresh token does not expire every 
    | **Client secret** | Settings → Credentials → `google.client_secret` | Google says it isn't a true secret for installed apps, but it's credential-shaped, so the Keychain (G6) |
    | **Refresh token** | *nothing to paste* — `google.refresh_token` is the **output** of the sign-in flow | You never type this by hand |
 
-6. In TidyTime **Settings → Connect Google**, click sign-in: the app opens the system browser on a
+6. In TidyTime **Settings → Credentials → Sign in with Google**: the app opens the system browser on a
    loopback redirect, you consent once, and it exchanges the code (PKCE) for tokens.
 
 **Secret:** the **refresh token** minted after consent → Keychain (`google.refresh_token`). The

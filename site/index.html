@@ -225,7 +225,7 @@ make test                                  <span class="c"># run the TidyKit uni
     <p class="sub">Capture-first and strictly phased; each phase ships tested logic behind protocols.</p>
     <div class="stats" style="margin-bottom:24px">
       <div class="stat"><div class="big">7</div><div class="lbl">phases of tested logic (0–6)</div></div>
-      <div class="stat"><div class="big">194</div><div class="lbl">unit tests passing</div></div>
+      <div class="stat"><div class="big">279</div><div class="lbl">unit tests passing</div></div>
       <div class="stat"><div class="big">8</div><div class="lbl">SwiftPM library targets</div></div>
       <div class="stat"><div class="big">9</div><div class="lbl">enforced guardrails</div></div>
     </div>
@@ -242,7 +242,7 @@ make test                                  <span class="c"># run the TidyKit uni
       <div class="phase"><span class="p">+</span><span class="d">Finer within-app attribution — title/path grouping, page text into rung 2</span><span class="st">✓ done</span></div>
       <div class="phase"><span class="p">+</span><span class="d">Two independent review rounds — 64 findings, all HIGH/MED fixed</span><span class="st">✓ done</span></div>
     </div>
-    <p class="note" style="margin-top:20px"><b>Honest status:</b> the logic layers above are complete and tested headlessly. The SwiftUI <b>app shell that hosts them is still the Phase-0 placeholder</b>, so there is no installable build yet. Live OS, Accessibility/Automation (TCC), OAuth, and cloud paths are compile-only here and are verified manually on a real Mac.</p>
+    <p class="note" style="margin-top:20px"><b>Honest status:</b> the logic layers are complete and tested headlessly, and the app has <b>run live on a real Mac</b> — signed dmg installed, Accessibility/Automation granted and persisting, capture banking real sessions, and live Slack/Fathom sync exercised (its first-run failures were caught by the app's own diagnostics and fixed). Not yet exercised live: the Google sign-in click and the cloud AI rungs. Three independent review rounds (96 findings, all triaged) back the test suite.</p>
   </div>
 </section>
 

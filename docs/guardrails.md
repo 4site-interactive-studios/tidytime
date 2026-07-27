@@ -116,6 +116,9 @@ process. Launch-at-login is `SMAppService`; there are no helper tools or launch 
 If the app isn't running, capture is off — and the absent menu bar icon says so.
 
 **Enforcement.** No `launchd` plist, no XPC helper, no privileged helper in the build.
+(The Google sign-in flow binds a **transient loopback-only listener** for the seconds between
+opening the browser and receiving the redirect — in-process, `127.0.0.1`-bound, closed on
+completion or timeout. Not a background service; documented here so its port never surprises.)
 
 ## G9 — Retention and privacy blast radius
 

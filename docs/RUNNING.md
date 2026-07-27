@@ -1,6 +1,6 @@
 # Running TidyTime — what was built, and how to get it going
 
-**Describes commit `ec1beb2`+ · 194 tests passing · 2026-07-25.**
+**Describes commit `59db8b1`+ · 279 tests passing (`make test` regenerates) · 2026-07-27.**
 If `HEAD` is newer than that, re-verify before trusting the numbers below — regenerate them with
 `make test` and `make coverage` rather than copying them forward.
 
@@ -45,29 +45,31 @@ Architecture: [overview](architecture/overview.md) · [module map](architecture/
 
 | | | Produced by |
 |---|---|---|
-| **194 unit tests, 0 failures** | | `cd Packages/TidyKit && swift test` |
+| **279 unit tests, 0 failures** | | `cd Packages/TidyKit && swift test` |
 | **64.3% line coverage** on `Sources/` | ~90% on the testable core; the rest is SwiftUI + live-OS code that can't run headlessly | `make coverage` |
 | **8 SwiftPM library targets** + 1 app target | | `Package.swift` |
 | **9 guardrails**, each backed by a test | | [guardrails.md](guardrails.md) |
 | **9 migrations** `v1-core` … `v2-page-snapshot-time-index` | additive; upgrade path tested | [data-model.md](architecture/data-model.md#registered-migrations-as-shipped) |
-| **2 independent review rounds**, 64 findings | all HIGH/MED fixed | [PROJECT-REVIEW.md](PROJECT-REVIEW.md) |
+| **3 independent review rounds**, 96 findings | all HIGH + actionable MED/LOW fixed | [PROJECT-REVIEW.md](PROJECT-REVIEW.md) |
 
 ## What is NOT verified
 
 Read this before trusting anything above. It is the difference between "tested library" and
 "working product".
 
-- **The app BUILDS (Debug + Release) and packages into a `.dmg`, but has never been LAUNCHED.**
-  Nobody has run it, granted it a permission, or seen a window. Every SwiftUI view, the capture
-  timers, and the whole permission flow are unexercised at runtime. You will be the first.
-- **The only dmg produced so far is an UNSIGNED PREVIEW** (`ALLOW_UNSIGNED=1 make dmg`). It is fine
-  for a look, but do **not** grant it permissions and depend on them: without a stable signature,
-  macOS revokes Accessibility/Automation grants on every rebuild (**G7**). For a build you can live
-  with, set `DEVELOPMENT_TEAM` in `Local.xcconfig` and run `make dmg`.
-- **Every SwiftUI / AppKit / OS-integration path is compile-only.** No test exercises the timers,
-  `NSWorkspace` observers, Accessibility reads, AppleScript, or any view.
-- **No live API call has ever been made from this repo.** Productive, Fathom, Google, Slack, Fireworks
-  and Anthropic clients are all tested against **recorded fixtures**.
+- **The app HAS run live** (2026-07-25→27, one Mac): signed dmg installed, Accessibility/Automation
+  granted and persisting across rebuilds, capture banking real sessions with window titles,
+  credentials stored via the Settings UI, and live **Slack + Fathom** syncs exercised — including
+  surviving their first-run failure modes (unbounded history, 429 loops), which the app's own
+  diagnostics caught. What live use has NOT touched yet:
+  - **The Google sign-in click.** The flow is end-to-end tested against a real localhost socket
+    with a simulated browser and token endpoint, but no human has completed it against real Google.
+  - **Productive live sync** (waiting on the org id in config), **the cloud AI rungs** (no live
+    Fireworks/Anthropic call yet), the recap/dashboard/nudge surfaces under real use.
+- **Unit tests still exercise no SwiftUI view directly** — views render tested pure logic
+  (`DoctorTips`, `CredentialCatalog`, readiness); rendering itself is verified by using the app.
+- **API clients are tested against recorded fixtures**; Slack/Fathom have now also run live, the
+  others have not.
 - **TCC (Accessibility, Automation, Notifications), Google OAuth, the Slack app install, and the
   on-device Foundation Models rung require a real Mac** (+ macOS 26 and Apple Intelligence for rung 3)
   and are verified **manually**.
@@ -151,7 +153,7 @@ All land in the **Keychain**. A set key is locked until removed, and removal ask
 **8 · Verify.**
 ```bash
 make doctor      # paths + permission status
-make test        # 184 tests
+make test        # 279 tests
 make coverage    # per-file coverage
 make lint        # documentation links resolve
 ```

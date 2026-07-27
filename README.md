@@ -14,14 +14,15 @@ back. It's built for *backfill*, not stopwatch discipline: capture everything pa
 attribute afterward, and at end of day (or first thing the next morning) reconcile a whole day
 in a few minutes instead of an end-of-week archaeology session.
 
-> **Status: code complete; never run.**
+> **Status: running in production (one user), signed and validated on a real Mac.**
 > All seven phases (0–6) of logic ship as tested SwiftPM targets under `Packages/TidyKit`
-> — **194 unit tests, 0 failures** — covering capture, the read-only Productive
-> mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, and the
-> metered AI router. The macOS app in `App/` now **hosts** those modules (menu bar popover, recap,
-> dashboard, settings, doctor). It **builds and packages into a `.dmg`** — but has **never been
-> launched**, so every view, timer, and permission prompt is unexercised at runtime. Live OS/TCC,
-> OAuth, and cloud paths are verified manually on a Mac.
+> — **279 unit tests, 0 failures** — covering capture, the read-only Productive
+> mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, the
+> metered AI router, and the Google OAuth sign-in flow. The macOS app in `App/` hosts those modules
+> and has been **launched and validated live** (2026-07-25→27): signed dmg installed, TCC grants
+> persisting, capture banking real sessions, credentials in the Keychain, and live Slack/Fathom
+> syncs exercised (whose first-run failures were found and fixed exactly this way). Still awaiting
+> first live use: the Google sign-in click and the cloud AI rungs.
 > Start at **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
 > [docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md).
 

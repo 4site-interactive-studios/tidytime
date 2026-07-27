@@ -6,10 +6,13 @@
 |---|---|---|---|---|---|
 | 1 | 2026-07-24 | everything up to `034e6b8` | 3 | 12, all fixed | 117 → 130 |
 | 2 | 2026-07-25 | `034e6b8..dcffdac` (post-review delta + the never-reviewed site commit) | 4 | 52; HIGH/MED fixed | 152 → 184 |
+| 3 | 2026-07-27 | `1e47046..59db8b1` (app shell, dmg pipeline, live-run fixes, OAuth, guided UI — 20 commits) | 4 | 32; HIGH + all actionable MED fixed | 268 → 279 |
 
 > **Unreviewed at HEAD:** the app-shell wiring (`b5db65a`) landed *after* round 2 and has not been independently reviewed — by the rule below, it is unreviewed by definition.
 
-> **Current as of `46db539`.** Round 2 covers the four post-review enhancements *and* the companion
+> **Current as of the round-3 fix commits (post-`59db8b1`).** Round 3 covers the app shell, the dmg
+> pipeline, the first-live-run fixes, the Google OAuth flow, and the guided Doctor/Credentials UI.
+> Round 2 covers the four post-review enhancements *and* the companion
 > site, which round 1 predated. See [How this doc stays honest](#how-this-doc-stays-honest).
 
 ---
@@ -97,7 +100,7 @@ probes** — all four reviewers caught their probe, so their other findings were
 
 A hardcoded number rots; an auditable chain doesn't:
 
-`117` (round 1) → `130` (round-1 fixes) → `135` → `141` → `147` → `152` (`dcffdac`) → `184` (round-2 fixes) → **`194`** (app wiring)
+`117` (round 1) → `130` (round-1 fixes) → `135` → `141` → `147` → `152` (`dcffdac`) → `184` (round-2 fixes) → `194` (app wiring) → `204` → `231` (OAuth + ingest fixes) → `268` (Doctor tips, credentials, sign-in) → **`279`** (round-3 fixes). Regenerate with `make test`.
 
 Regenerate with `make test`, which prints `Executed N tests`.
 
@@ -147,6 +150,33 @@ the fixes above.
 - Idle-aware dwell relies on `away_gaps` being written, which needs `PowerObserver` wired in the app.
 - The escalation model slug and its price are placeholders (`_build_time_checks`).
 - `AXObserver`-driven within-app detection (instead of polling) remains the better long-term design.
+
+## Round 3 — the unreviewed twenty (2026-07-27, `1e47046..59db8b1`)
+
+Four blind reviewers over everything since the round-2 addendum: the wired app shell + dmg
+pipeline, the Keychain/signing fixes, ingest wiring and the first-live-run corrections, the Google
+OAuth engine + orchestrator, and the guided Doctor/Credentials UI. Uniquely, part of this delta had
+already been validated by REAL use (signed install, TCC grants, live Slack/Fathom sync).
+
+| Reviewer | Verdict | Headline |
+|---|---|---|
+| R1 Correctness | pass_with_concerns | OAuth/credentials/retention sound; unguarded concurrent ingest, permanently-nil Slack names, frozen menu-bar icon |
+| R2 Coverage | pass_with_concerns | 268 pass; but 3 of 5 first-live-run fixes shipped with zero test protection |
+| R3 Guardrails | pass_with_concerns | All nine hold in substance; dmg script displayed but didn't enforce signing; two unredacted error seams |
+| R4 Docs & site | **fail** | README/site/RUNNING still claimed "never launched / 194 tests" after the app ran live |
+
+**Disposition:** 32 findings — 3 HIGH (all doc-truth), 11 MED, 10 LOW, 8 notes. Every HIGH and
+actionable MED/LOW fixed in the round-3 commits (`fix(review)` + the docs sweep), each with a
+regression test where testable: ingest serialization (`ingestInFlight`), Slack `user_name`
+backfill, menu-bar icon observation, redaction order + minimum-secret-length (both caught by the
+new tests themselves), 410 syncToken recovery, loopback preconnect skip, make-dmg signing
+enforcement, notification-status cache, and coverage for the Slack backoff / users throttle /
+Fathom bound / google happy path. Deferred as notes: DPoP hardening, accept-loop content-length
+parsing, catalog↔doc wording alignment.
+
+**The recurring lesson, third time:** every review round's docs reviewer returned FAIL for the
+same defect class — reality moved, prose didn't. The mitigation stays procedural (this doc's sha
+stamp + the closing rule below), because a test cannot read English.
 
 ## How this doc stays honest
 

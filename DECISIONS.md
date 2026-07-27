@@ -783,3 +783,10 @@ the instrument was trusted. Fixes:
   up to 2s and Doctor polls on the main thread every 3s.
 - Coverage debt paid: the three first-live-run fixes (Slack 429 backoff, users.list throttle,
   Fathom 90d bound) and the google happy-path sync now have tests. 268 → 279.
+
+### Closure markers (2026-07-27, round-3 R4-8)
+- The earlier "**BLOCKER**: xcodebuild is broken on this machine" entry is RESOLVED — a plain
+  `xcodebuild -runFirstLaunch` (no sudo) repaired the plug-in cache; the app has built, packaged,
+  and shipped signed dmgs since (`9b1915f` onward).
+- The "app shell is a Phase-0 placeholder" claims in early entries are superseded by `b5db65a`
+  (full surface wired) and the first real run (2026-07-25).

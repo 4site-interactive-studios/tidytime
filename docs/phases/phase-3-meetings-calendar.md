@@ -14,6 +14,12 @@ away prompt, and land the attendee-domain bootstrap inputs for entity resolution
 
 ## Status: as built (2026-07-23)
 
+> **Update 2026-07-27:** the OAuth sign-in flow this phase deferred now EXISTS —
+> `GoogleAuthenticator` (loopback 127.0.0.1 + PKCE, CSRF-state validated, refresh token →
+> Keychain) with a **Sign in with Google** button in Settings → Credentials, wired into
+> `google_calendar` readiness and a bounded first sync (−30d/+60d). End-to-end tested against a
+> real localhost socket; the live click against real Google remains the manual acceptance step.
+
 > ✅ **Logic complete + unit-tested** (72 tests total). Shipped: `v1-meetings` migration + records/
 > DAOs, `TimeParse`, the Fathom client/mapper/sync (`MeetingSessionBuilder`, recording-span
 > duration, idempotent re-sync), the Google Calendar client/mapper/sync (camelCase, cancelled →
@@ -22,7 +28,7 @@ away prompt, and land the attendee-domain bootstrap inputs for entity resolution
 > [../retrospectives/phase-3.md](../retrospectives/phase-3.md).
 >
 > ⚠️ **Manual/build-time checks:** Fathom API access + exact response shape; the Google Internal-type
-> OAuth loopback+PKCE flow and refresh-token longevity; meetings appearing with real durations
+> refresh-token longevity; meetings appearing with real durations
 > end-to-end. `meetings.calendar_event_id` is left NULL until a later time+attendee match.
 
 ## Goal
