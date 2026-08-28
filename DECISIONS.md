@@ -1704,3 +1704,30 @@ no access to SwiftUI's `openWindow`, which exists only in the app shell. The she
 That keeps the module boundary intact instead of dragging window management into the library.
 A malformed `recap.time` logs and schedules nothing rather than crashing or firing at a surprising
 hour — pinned for `""`, `"17"`, `"5pm"`, `"25:00"`, `"17:99"`.
+
+### 6. Cards a person can act on
+
+Four things, each of which made the recap read as broken rather than empty.
+
+**Names, not ids.** `SuggestionCard.title` fell back to `taskId ?? projectId ?? clientId`, so the
+*best* cards — the ones attributed all the way down to a task — were headed by a bare number like
+`18609405`. Resolved in `RecapAssembler` rather than the view, so `RecapView` stays a pure function
+of its input and needs no database. Looked up per suggestion, not by loading 11,631 tasks; a day has
+a handful of cards.
+
+**"Open in Productive" now exists.** `ProductiveDeepLink` was correct, tested nine ways, and had
+zero production callers, so `deep_link` was always NULL. Moved it from `TidyIngest` to `TidyCore` —
+it is pure string substitution over `Config` values with no I/O, and its old home meant `TidySuggest`
+could not populate the column without a dependency the module map forbids. The engine fills it; the
+view renders the button only when non-nil, which is exactly why `url(...)` returns an optional.
+Closes the remaining half of open item **A2**.
+
+**Decided cards leave the stack.** `RecapAssembler` fetched every status and `RecapView` rendered
+them all, so a tossed card kept rendering with live buttons — while `MenuBarPopover` already
+filtered to `pending`, so the two disagreed about how much was outstanding.
+
+**An empty state that says which link is missing.** The pane rendered the word "Suggestions" over a
+blank list while the left pane reported "N min observed · X% attributed" — which reads as broken.
+It now distinguishes *nothing captured* from *captured but nothing attributed* from *nothing left to
+suggest*, and points at Doctor or the questions list accordingly. Same principle as Doctor's ingest
+readiness rows: a zero is only trustworthy when it explains itself.

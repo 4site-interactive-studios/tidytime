@@ -14,6 +14,13 @@ public struct RecapDay: Sendable, Equatable {
     public let loggedMinutes: Int
     /// How fragmented the day was — switches, dwell, thrash (from raw samples, not sessions).
     public let contextSwitches: ContextSwitchMetrics
+    /// Human names for the ids a suggestion carries, keyed by id.
+    ///
+    /// The card previously rendered `suggestion.taskId ?? projectId ?? clientId` — so the best
+    /// cards, the ones attributed all the way down to a task, were headed by a bare number like
+    /// `18609405`. Resolved here rather than in the view so `RecapView` stays a pure function of
+    /// its input and needs no database.
+    public var names: [String: String] = [:]
     /// % of observed time that got attributed to a client (capture health).
     public var attributionRate: Double {
         observedSeconds > 0 ? Double(attributedSeconds) / Double(observedSeconds) : 0
@@ -21,6 +28,18 @@ public struct RecapDay: Sendable, Equatable {
 }
 
 public struct RecapAssembler: Sendable {
+    /// Resolve the ids a card would otherwise show raw. Looked up per suggestion rather than by
+    /// loading all 11,631 tasks — a day has a handful of cards.
+    static func names(for suggestions: [Suggestion], db: AppDatabase) -> [String: String] {
+        var out: [String: String] = [:]
+        for s in suggestions {
+            if let id = s.taskId, out[id] == nil, let t = ((try? db.task(id: id)) ?? nil) { out[id] = t.title }
+            if let id = s.projectId, out[id] == nil, let p = ((try? db.project(id: id)) ?? nil) { out[id] = p.name }
+            if let id = s.clientId, out[id] == nil, let c = ((try? db.company(id: id)) ?? nil) { out[id] = c.name }
+        }
+        return out
+    }
+
     private let db: AppDatabase
     private let clock: TidyClock
     private let selfPersonId: String?
@@ -53,10 +72,17 @@ public struct RecapAssembler: Sendable {
         let awayGaps = (try? db.awayGaps(from: from, to: to)) ?? []
         let switches = ContextSwitchAnalyzer(policy: contextPolicy)
             .analyze(try db.samples(from: from, to: to), now: min(now, to), awayGaps: awayGaps)
-        return RecapDay(
-            day: day, timeline: sessions, suggestions: try db.suggestions(day: day),
+        // Only pending cards. The table keeps logged/tossed rows as the decision record, but a card
+        // the user already dismissed must not keep rendering with live buttons — `MenuBarPopover`
+        // already filters this way and the recap did not, so its count and the popover's disagreed.
+        let pending = try db.suggestions(day: day).filter { $0.status == "pending" }
+
+        var recap = RecapDay(
+            day: day, timeline: sessions, suggestions: pending,
             questions: try db.openQuestions(), observedSeconds: observed,
             attributedSeconds: attributed, loggedMinutes: logged, contextSwitches: switches)
+        recap.names = Self.names(for: pending, db: db)
+        return recap
     }
 
     /// Persist the day's rollup metrics (dashboard input).

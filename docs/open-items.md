@@ -84,9 +84,12 @@ box and stamp the date when resolved.
   cannot fill yields `nil` and the link is hidden rather than emitting a dead URL.
   See [reference/productive-api.md](reference/productive-api.md#task-deep-links-web-app-not-the-api).
 
-  **Still open, tracked separately:** no UI renders this link yet. `ProductiveDeepLink` has no
-  production caller — `suggestions.deep_link` is always `NULL` and the recap card shows only
-  Copy / Log it / Toss. The pattern is now correct and ready for the card that will use it.
+  **Fully closed 2026-08-28.** The card now renders it. `SuggestionEngine` populates
+  `suggestions.deep_link` and `RecapView` shows an "Open in Productive" link — only when the value
+  is non-nil, so a missing `productive_org_slug` hides the affordance rather than opening a 404.
+  `ProductiveDeepLink` moved from `TidyIngest` to `TidyCore` to make that possible: it is pure
+  string substitution over `Config` values, and its old home meant `TidySuggest` could not reach it
+  without a dependency the module map forbids.
 
 ### A3 — Verify the exact Slack user-scope list at manifest time
 

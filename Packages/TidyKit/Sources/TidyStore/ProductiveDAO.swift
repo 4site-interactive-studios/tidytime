@@ -40,6 +40,12 @@ extension AppDatabase {
             return try PDTask.fetchAll(db)
         }
     }
+    public func project(id: String) throws -> PDProject? {
+        try writer.read { db in try PDProject.fetchOne(db, key: id) }
+    }
+    public func company(id: String) throws -> PDCompany? {
+        try writer.read { db in try PDCompany.fetchOne(db, key: id) }
+    }
     public func task(id: String) throws -> PDTask? {
         try writer.read { db in try PDTask.fetchOne(db, key: id) }
     }

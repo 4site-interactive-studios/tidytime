@@ -62,12 +62,43 @@ public struct RecapView: View {
         }.padding()
     }
 
+    /// Say WHICH link in the chain is missing.
+    ///
+    /// The pane used to render the word "Suggestions" over a blank list while the left pane
+    /// cheerfully reported "N min observed · X% attributed" — which reads as broken, not as "nothing
+    /// to suggest". Same principle as Doctor's ingest readiness rows: a zero is only trustworthy
+    /// when it explains itself.
+    @ViewBuilder private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(emptyHeadline).font(.callout)
+            Text(emptyDetail).font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 6)
+    }
+
+    private var emptyHeadline: String {
+        if recap.timeline.isEmpty { return "Nothing captured yet today." }
+        if recap.attributedSeconds == 0 { return "Captured your day, but couldn’t match any of it to a client." }
+        return "Nothing left to suggest."
+    }
+
+    private var emptyDetail: String {
+        if recap.timeline.isEmpty {
+            return "Suggestions appear once there are sessions to group. Check Doctor if capture looks paused."
+        }
+        if recap.attributedSeconds == 0 {
+            return "That usually means the Productive mirror is empty or has no client vocabulary yet — "
+                 + "open Doctor and check the productive row. Answering a question below also teaches it."
+        }
+        return "Everything attributed today is either already logged in Productive or has been handled."
+    }
+
     private var stack: some View {
         VStack(alignment: .leading) {
             Text("Suggestions").font(.headline)
             List {
+                if recap.suggestions.isEmpty { emptyState }
                 ForEach(recap.suggestions, id: \.id) { s in
-                    SuggestionCard(suggestion: s, onAction: onAction, onCopy: onCopy)
+                    SuggestionCard(suggestion: s, names: recap.names, onAction: onAction, onCopy: onCopy)
                 }
                 if !recap.questions.isEmpty {
                     Section("Questions") {
@@ -84,6 +115,7 @@ public struct RecapView: View {
 @available(macOS 14.0, *)
 struct SuggestionCard: View {
     let suggestion: Suggestion
+    let names: [String: String]
     let onAction: (Suggestion, String) -> Void
     let onCopy: (String) -> Void
 
@@ -103,14 +135,25 @@ struct SuggestionCard: View {
             }
             HStack {
                 Button("Copy") { onCopy(copyPayload) }
+                // Only when the pattern could actually be filled — `ProductiveDeepLink` returns nil
+                // rather than emitting `//tasks/task/123`, and a link that promises a task and
+                // delivers a 404 costs a context switch to discover.
+                if let link = suggestion.deepLink, let url = URL(string: link) {
+                    Link("Open in Productive", destination: url)
+                }
                 Button("Log it ✓") { onAction(suggestion, "log") }
                 Button("Toss") { onAction(suggestion, "toss") }
             }.buttonStyle(.borderless).font(.caption)
         }.padding(.vertical, 4)
     }
 
+    /// Names, not ids. The best cards — attributed all the way to a task — were headed by a bare
+    /// number like `18609405`, which tells the user nothing about what they worked on.
     private var title: String {
         if suggestion.kind == "new_task", let t = suggestion.proposedTaskTitle { return "Propose task: \(t)" }
+        for id in [suggestion.taskId, suggestion.projectId, suggestion.clientId].compactMap({ $0 }) {
+            if let name = names[id], !name.isEmpty { return name }
+        }
         return suggestion.taskId ?? suggestion.projectId ?? suggestion.clientId ?? suggestion.kind
     }
     private var copyPayload: String {

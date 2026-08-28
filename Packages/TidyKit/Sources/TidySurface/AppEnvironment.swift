@@ -292,7 +292,9 @@ public final class AppEnvironment: ObservableObject {
                 rounding: RoundingPolicy(incrementMinutes: config.suggestions.incrementMinutes,
                                          roundUpBias: config.suggestions.roundUpBias),
                 standaloneThresholdMinutes: config.suggestions.standaloneThresholdMinutes,
-                selfPersonId: (try? db.selfPerson())?.id)
+                selfPersonId: (try? db.selfPerson())?.id,
+                organization: config.organization,
+                deepLinkPattern: config.productive.taskDeepLinkPattern)
             _ = try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
 
             // Unresolved recurring hosts become ONE ask-once question each. Without this the recap's

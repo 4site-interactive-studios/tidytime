@@ -14,12 +14,28 @@ public struct SuggestionEngine: Sendable {
     private let standaloneThresholdMinutes: Int
     private let poolThresholdMinutes: Int
     private let selfPersonId: String?
+    /// Enough config to build a task deep link. Optional so tests need not supply one; when absent
+    /// the column stays NULL and the UI hides the button, which is the correct degradation.
+    private let organization: Config.Organization?
+    private let deepLinkPattern: String?
 
     public init(db: AppDatabase, clock: TidyClock = SystemClock(), rounding: RoundingPolicy = RoundingPolicy(),
-                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 15, selfPersonId: String? = nil) {
+                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 15, selfPersonId: String? = nil,
+                organization: Config.Organization? = nil, deepLinkPattern: String? = nil) {
         self.db = db; self.clock = clock; self.rounding = rounding
         self.standaloneThresholdMinutes = standaloneThresholdMinutes
         self.poolThresholdMinutes = poolThresholdMinutes; self.selfPersonId = selfPersonId
+        self.organization = organization; self.deepLinkPattern = deepLinkPattern
+    }
+
+    /// The task's URL in the Productive web app, or nil when the config cannot fill the pattern.
+    /// Stored on the row so the view needs neither `Config` nor a dependency on `TidyIngest`.
+    private func deepLink(taskId: String?) -> String? {
+        guard let taskId, let organization, let pattern = deepLinkPattern else { return nil }
+        return ProductiveDeepLink.url(taskId: taskId,
+                                      organizationId: organization.productiveOrganizationId,
+                                      organizationSlug: organization.productiveOrgSlug,
+                                      pattern: pattern)
     }
 
     public struct Summary: Sendable, Equatable {
@@ -115,7 +131,8 @@ public struct SuggestionEngine: Sendable {
                     minutes: suggestMinutes, rawSeconds: g.seconds, note: note(for: g),
                     confidence: g.confidence, producedByRung: g.rung,
                     rationale: "grouped \(g.sessionIds.count) session(s)" + rationaleExtra,
-                    isRoundedUp: roundedUp, sourceRefsJson: sourceRefs(g.sessionIds),
+                    isRoundedUp: roundedUp, deepLink: deepLink(taskId: g.taskId),
+                    sourceRefsJson: sourceRefs(g.sessionIds),
                     createdAt: now, updatedAt: now)
                 try db.insertSuggestion(suggestion)
                 summary.standalone += 1
