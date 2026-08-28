@@ -219,6 +219,11 @@ public final class AppEnvironment: ObservableObject {
                                          minSessionSeconds: config.sessionization.minSessionSeconds),
                 separateChatsByPath: config.capture.separateChatsByPath)
             try builder.rebuild(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            // Vocabulary before classification: rung 1 matches against `entity_signals`, and until
+            // this call existed that table had 0 rows — so rung 1 could never fire and only rung 2
+            // lexical matching ever produced an attribution (15 of 3,890 sessions). Idempotent and
+            // cheap; `insertSignalIfAbsent` never overwrites a user-confirmed rule.
+            _ = try EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970))
             _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             try refreshToday()
             try writeRollups()

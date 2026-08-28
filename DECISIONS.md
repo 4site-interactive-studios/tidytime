@@ -1488,3 +1488,46 @@ the payload saving is not worth reintroducing the `task_number` failure mode. Do
 `fetchAll` now counts rows that came back with no linkage at all and, if a whole page is unlinked on
 an endpoint we asked to sideload, logs at error level naming the expected `include`. A silent orphan
 row is worse than a noisy one.
+
+### 2. The vocabulary — ambiguity, not a stop-list, is the precision guard
+
+`EntityBootstrap` was orphaned (zero production call sites) *and* insufficient. It only emitted
+`url_host`/`email_domain` from `pd_companies.domain`, and on this workspace **0 of 687 companies
+carry a domain** — so wiring it as-was would have inserted zero signals and rung 1 would have stayed
+dead. Fixing the orphan alone was not the fix.
+
+`understand-layer.md` §2.2 already specified name tokens as a source; only the domain half had been
+built. Now both are.
+
+**The interesting decision is how to keep keyword signals from lying.** A token minted against the
+wrong client produces a *confident* wrong attribution, which is worse than no attribution — the user
+has to notice it and undo it. My first instinct was a stop-list, and it is the wrong tool: it cannot
+know that `video` appears in 40 projects across 30 clients while `engrid` belongs to exactly one.
+That is a property of the data, not of English.
+
+So the rule is structural: **a token becomes a signal only if every name containing it maps to the
+same client.** A token pointing at two clients points at neither. It needs no maintenance and it
+adapts as the workspace changes.
+
+A small stop-list survives for one job the ambiguity test cannot do: `4site`, `internal`, `retainer`,
+`meeting`, `pto`… name *our own* work. They pass the uniqueness test whenever a single client happens
+to own the only project mentioning them, and would then attach a client to every unrelated session.
+
+Two guards worth keeping:
+- Projects with an empty `company_id` are skipped. Before stage 1 that was **every** project, and
+  minting from them would have attached tokens to an empty client id — the same `""`-shaped
+  corruption that hid the severed mirror.
+- A project id rides along only when the token is unique to one *project* as well; otherwise the
+  signal still resolves the client, which is the more valuable half.
+
+**Rejected:** bootstrapping from `pd_tasks.title` (11,631 rows). Highest volume, lowest precision,
+and stage 3 gives exact task attribution from URLs instead — evidence beats vocabulary.
+
+Wired into `runPipelineOnce` before `DayClassifier`, since rung 1 reads what it writes. Idempotent
+via `insertSignalIfAbsent`, and a test pins that re-running never overwrites a `user_confirmed`
+signal — user rules outrank bootstrapped ones forever.
+
+**Test churn worth noting:** the pre-existing `testCreatesDomainSignals` asserted `created == 2`.
+It now sees 3 because the company name mints a keyword too. I rewrote the assertion to check the
+signals it cares about rather than bumping the number — a test that pins a total count of sources
+breaks every time a source is added, and tells you nothing about behaviour.

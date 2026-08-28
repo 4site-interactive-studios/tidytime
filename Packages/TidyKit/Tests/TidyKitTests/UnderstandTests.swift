@@ -15,11 +15,14 @@ final class EntityBootstrapTests: XCTestCase {
     func testCreatesDomainSignals() throws {
         let db = try AppDatabase.inMemory()
         try db.upsertCompanies([PDCompany(id: "c1", name: "Acme", domain: "Acme.org", syncedAt: 1)])
-        let created = try EntityBootstrap().run(db, now: 100)
-        XCTAssertEqual(created, 2)  // url_host + email_domain
+        try EntityBootstrap().run(db, now: 100)
         let sig = try db.signals(values: ["acme.org"])
         XCTAssertEqual(Set(sig.map(\.signalType)), ["url_host", "email_domain"])
         XCTAssertEqual(sig.first?.clientId, "c1")
+        // The bootstrap also mints a `keyword` signal from the company NAME now — on a real
+        // workspace 0 of 687 companies carry a domain, so name tokens are what actually build the
+        // vocabulary. Asserting an exact total here would just pin today's source count.
+        XCTAssertEqual(try db.signals(values: ["acme"]).first?.clientId, "c1")
     }
 }
 

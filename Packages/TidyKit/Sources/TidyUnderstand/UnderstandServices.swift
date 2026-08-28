@@ -2,14 +2,48 @@ import Foundation
 import TidyCore
 import TidyStore
 
-/// Bootstraps `entity_signals` from the Productive cache — company domains become `url_host` +
-/// `email_domain` rules so a session on a client's site/domain resolves at rung 1 immediately.
+/// Bootstraps `entity_signals` from the Productive cache, so a session resolves at rung 1 without
+/// the user teaching the app anything first.
+///
+/// Two sources, because on a real workspace the documented one alone yields nothing:
+///
+/// 1. **Company domains** → `url_host` + `email_domain`. This is what
+///    `docs/architecture/understand-layer.md` §2.2 specifies, and it is right in principle — but on
+///    the workspace this was built against **0 of 687 companies carry a domain**, so it produced
+///    exactly zero signals. It is kept because it is high-precision where it does apply.
+/// 2. **Name tokens** → `keyword`, from company names and project names. This is what actually
+///    populates the vocabulary here, and §2.2 calls for it too.
+///
+/// ## Why ambiguity, not a stop-list, is the precision guard
+///
+/// A hand-written stop-list cannot know that "video" appears in 40 projects across 30 different
+/// clients while "engrid" belongs to exactly one. So the rule is structural: **a token becomes a
+/// signal only if every name containing it maps to the same client.** A token that points at two
+/// clients points at neither, and minting it would produce confident wrong attributions — far worse
+/// than no attribution, because the user has to notice and undo it.
+///
+/// `pd_tasks.title` is deliberately NOT a source. It is the highest-volume (11,631 rows) and
+/// lowest-precision vocabulary available, and the URL rung gives exact task attribution instead.
 public struct EntityBootstrap: Sendable {
     public init() {}
+
+    /// Tokens that name our own tooling or the calendar rather than a client. These would otherwise
+    /// pass the ambiguity test whenever a single client happens to own the only project mentioning
+    /// them, and attach a client to every unrelated session.
+    static let houseTokens: Set<String> = [
+        "4site", "internal", "admin", "ops", "operations", "general", "misc", "miscellaneous",
+        "retainer", "support", "maintenance", "meeting", "meetings", "call", "calls", "time",
+        "off", "pto", "holiday", "vacation", "training", "onboarding", "hiring", "recruiting",
+    ]
+
     @discardableResult
     public func run(_ db: AppDatabase, now: Int64) throws -> Int {
         var count = 0
-        for c in try db.companies() {
+        let companies = try db.companies()
+        let projects = try db.projects()
+
+        // 1. Domains — exact, unambiguous, and free when present.
+        for c in companies {
             guard let domain = c.domain?.lowercased(), !domain.isEmpty else { continue }
             for type in ["url_host", "email_domain"] {
                 try db.insertSignalIfAbsent(EntitySignal(
@@ -17,6 +51,38 @@ public struct EntityBootstrap: Sendable {
                     provenance: "bootstrapped", createdAt: now, updatedAt: now))
                 count += 1
             }
+        }
+
+        // 2. Name tokens, keeping only those that identify exactly one client.
+        var clientsByToken: [String: Set<String>] = [:]
+        var projectsByToken: [String: Set<String>] = [:]
+
+        for c in companies where !c.name.isEmpty {
+            for t in Tokenizer.tokens(c.name) {
+                clientsByToken[t, default: []].insert(c.id)
+            }
+        }
+        for p in projects where !p.name.isEmpty {
+            // A project with no company is unattributable — this is exactly the state the whole
+            // mirror was in before `include=` was sent, and minting signals from it would attach
+            // tokens to an empty client id.
+            guard !p.companyId.isEmpty else { continue }
+            for t in Tokenizer.tokens(p.name) {
+                clientsByToken[t, default: []].insert(p.companyId)
+                projectsByToken[t, default: []].insert(p.id)
+            }
+        }
+
+        for (token, clients) in clientsByToken {
+            guard clients.count == 1, let clientId = clients.first else { continue }
+            guard !Self.houseTokens.contains(token) else { continue }
+            // Attach a project only when the token is unique to one project as well; otherwise the
+            // signal still resolves the client, which is the more valuable half.
+            let projectId = projectsByToken[token]?.count == 1 ? projectsByToken[token]?.first : nil
+            try db.insertSignalIfAbsent(EntitySignal(
+                signalType: "keyword", signalValue: token, clientId: clientId, projectId: projectId,
+                provenance: "bootstrapped", createdAt: now, updatedAt: now))
+            count += 1
         }
         return count
     }
