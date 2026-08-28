@@ -100,6 +100,28 @@ extension AppDatabase {
         }
     }
 
+    /// Clear only the suggestions the user has NOT acted on, and return the keys of the ones kept.
+    ///
+    /// The pipeline regenerates every 300s. `clearDay` deletes and reinserts everything, so a
+    /// suggestion marked Logged or Tossed reverts to `pending` and reappears within five minutes —
+    /// the core loop of the product silently undoing itself. It also NULLs `decisions.suggestion_id`
+    /// (the FK is `onDelete: .setNull`), orphaning the audit trail the learning loop reads.
+    ///
+    /// The returned keys let the engine skip regenerating a group the user already settled. A key is
+    /// `kind|client|project|task` — attribution identity, not row id, because the row is rebuilt.
+    @discardableResult
+    public func clearPendingSuggestions(day: String) throws -> Set<String> {
+        try writer.write { db in
+            let decided = try Suggestion
+                .filter(sql: "day = ? AND status != 'pending'", arguments: [day])
+                .fetchAll(db)
+            try Suggestion.filter(sql: "day = ? AND status = 'pending'", arguments: [day]).deleteAll(db)
+            // Pools are pure scratch for the rebuild and carry no user decision.
+            try Pool.filter(sql: "day = ?", arguments: [day]).deleteAll(db)
+            return Set(decided.map(Suggestion.attributionKey))
+        }
+    }
+
     // MARK: decisions
 
     @discardableResult

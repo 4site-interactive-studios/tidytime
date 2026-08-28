@@ -27,6 +27,15 @@ public struct SuggestionEngine: Sendable {
         public var pools: Int
         public var newTaskProposals: Int
         public var skippedAlreadyLogged: Int
+        /// Groups left alone because the user already logged/tossed them on this day.
+        public var skippedAlreadyDecided: Int = 0
+        public init(standalone: Int = 0, pools: Int = 0, newTaskProposals: Int = 0,
+                    skippedAlreadyLogged: Int = 0, skippedAlreadyDecided: Int = 0) {
+            self.standalone = standalone; self.pools = pools
+            self.newTaskProposals = newTaskProposals
+            self.skippedAlreadyLogged = skippedAlreadyLogged
+            self.skippedAlreadyDecided = skippedAlreadyDecided
+        }
     }
 
     private struct Group {
@@ -43,7 +52,9 @@ public struct SuggestionEngine: Sendable {
 
     @discardableResult
     public func generate(day: String, from: Int64, to: Int64) throws -> Summary {
-        try db.clearDay(day)
+        // Preserve what the user already decided. A full clear would resurrect every tossed card on
+        // the next 300s pass and orphan the decisions audit trail.
+        let decided = try db.clearPendingSuggestions(day: day)
         let now = Int64(clock.now.timeIntervalSince1970)
         let sessions = try db.sessions(from: from, to: to)
 
@@ -74,6 +85,10 @@ public struct SuggestionEngine: Sendable {
         var pools: [String: Group] = [:]   // keyed by project/client for sub-threshold work
 
         for (_, g) in groups {
+            // Already settled by the user this day — do not re-propose it.
+            let settledKey = [g.taskId != nil ? "session" : (g.projectId != nil ? "new_task" : "new_task"),
+                              g.clientId, g.projectId ?? "", g.taskId ?? ""].joined(separator: "|")
+            if decided.contains(settledKey) { summary.skippedAlreadyDecided += 1; continue }
             let rawMinutes = g.seconds / 60
             if rawMinutes >= standaloneThresholdMinutes {
                 // Gap analysis: for a known task, subtract already-logged time from the RAW seconds

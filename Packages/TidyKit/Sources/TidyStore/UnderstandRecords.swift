@@ -73,6 +73,15 @@ public struct Suggestion: Codable, FetchableRecord, MutablePersistableRecord, Se
         self.status = status; self.sourceRefsJson = sourceRefsJson; self.createdAt = createdAt; self.updatedAt = updatedAt
     }
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    /// Identity of what a suggestion is *about*, stable across regeneration.
+    ///
+    /// Row ids are not usable here: the recap rebuilds its suggestions every pass, so the id of the
+    /// card the user tossed is gone by the next one. What persists is the attribution.
+    public static func attributionKey(_ s: Suggestion) -> String {
+        [s.kind, s.clientId ?? "", s.projectId ?? "", s.taskId ?? ""].joined(separator: "|")
+    }
+    public var attributionKey: String { Suggestion.attributionKey(self) }
     enum CodingKeys: String, CodingKey {
         case id, day, kind, clientId = "client_id", projectId = "project_id", taskId = "task_id"
         case proposedTaskTitle = "proposed_task_title", proposedTaskDescription = "proposed_task_description"

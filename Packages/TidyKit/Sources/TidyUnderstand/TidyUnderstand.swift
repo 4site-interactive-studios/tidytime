@@ -98,7 +98,26 @@ public struct Classifier: Sendable {
     public func classify(_ session: Session, invitees: [MeetingInvitee] = [],
                          pageTexts: [String] = [], urls: [String] = []) -> Classification? {
         if let exact = rungExactTask(urls) { return exact }
-        if let r1 = rung1(session, invitees: invitees) { return r1 }
+        if let r1 = rung1(session, invitees: invitees) {
+            // A signal match resolves the CLIENT; it rarely names a task. Rung 2 can name one, and a
+            // time entry needs a task — so preferring rung 1 wholesale trades a more useful answer
+            // for a more confident one. Measured live: adding the keyword arm moved 4 sessions from
+            // task-level rung-2 attribution to client-only rung-1.
+            //
+            // When rung 2 independently agrees on the same client AND can be more specific, take its
+            // attribution. Two independent signals agreeing is stronger evidence than either alone,
+            // so the rung-1 confidence is kept.
+            if r1.taskId == nil,
+               let r2 = rung2(session, invitees: invitees, pageTexts: pageTexts),
+               r2.clientId == r1.clientId, r2.taskId != nil || r2.projectId != nil {
+                return Classification(
+                    clientId: r1.clientId, projectId: r2.projectId ?? r1.projectId, taskId: r2.taskId,
+                    confidence: max(r1.confidence, r2.confidence), rung: r1.rung,
+                    rationale: "\(r1.rationale), refined by \(r2.rationale)",
+                    matchedSignalType: r1.matchedSignalType, matchedSignalValue: r1.matchedSignalValue)
+            }
+            return r1
+        }
         return rung2(session, invitees: invitees, pageTexts: pageTexts)
     }
 

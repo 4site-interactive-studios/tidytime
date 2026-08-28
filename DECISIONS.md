@@ -1626,3 +1626,45 @@ URLs are read from `activity_samples`, not `page_snapshots`, so this works even 
 `Classifier.init` build task candidates. That is the cost of the feature working, it is measured
 rather than guessed, and 340 ms per five minutes is not worth optimising before the pipeline does
 something with the result. Recorded so the next person sees it was a decision.
+
+### 4. Wiring the engine — and the regression the wiring exposed
+
+`SuggestionEngine` had six call sites, all tests. `runPipelineOnce` ran sessionize → classify →
+recap → rollups → retention and never generated a suggestion, so `suggestions` sat at 0 for the
+app's entire life while the recap rendered an empty card stack. Same class as `daily_rollups`:
+a job that is never invoked cannot log a failure.
+
+Three things had to change before wiring it was safe.
+
+**Regeneration was destroying user decisions.** `generate` opened with `clearDay`, deleting and
+reinserting every suggestion for the day. The pipeline runs every 300s, so a card marked Logged or
+Tossed reverted to `pending` and reappeared within five minutes — the product's core loop silently
+undoing itself. It also NULLed `decisions.suggestion_id` (the FK is `onDelete: .setNull`), orphaning
+the audit trail the learning loop reads. Now only `pending` rows are cleared, and a group the user
+already settled is skipped rather than re-proposed. The skip is keyed on **attribution identity**
+(`kind|client|project|task`), not row id — the row is rebuilt every pass, so its id is meaningless
+across regenerations.
+
+**Config was decorative.** `suggestions.increment_minutes`, `round_up_bias` and
+`standalone_threshold_minutes` were read in exactly one place — `SettingsView`, where they were only
+*displayed*. The engine hardcoded its defaults. Now passed through, pinned by tests that set a
+30-minute increment and a 45-minute threshold and assert the output changes.
+
+**Gap analysis could finally work at all.** It keys on `pd_time_entries.task_id`, which was NULL for
+every row until the `include=` fix. The test asserting an already-logged hour is not re-suggested
+would have passed vacuously before stage 1 — there was nothing to match against.
+
+#### The regression the live numbers caught
+
+Adding the rung-1 keyword arm moved sessions from task-level rung-2 attribution to client-only
+rung-1: `with_task` fell **47 → 43** while attribution rose 47 → 63. A signal match resolves the
+*client* and rarely names a task; rung 2 can name one. Preferring rung 1 wholesale traded a more
+useful answer for a more confident one — and a time entry needs a task.
+
+Fixed by merging rather than choosing: when rung 1 matched on a keyword and rung 2 independently
+agrees on the same client while being more specific, take rung 2's project/task with rung 1's
+confidence. Two independent signals agreeing is stronger evidence than either alone. Only the
+live numbers surfaced this — every unit test still passed.
+
+Live after stages 1–3: **63 of 89 of today's sessions attributed (71%)**, up from 7, with **20 at
+rung 1** where there had never been a single one.

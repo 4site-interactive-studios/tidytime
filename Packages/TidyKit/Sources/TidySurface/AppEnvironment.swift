@@ -228,6 +228,24 @@ public final class AppEnvironment: ObservableObject {
             // DayClassifier already applies to its own signal write.
             _ = try? EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970))
             _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            // Turn classified sessions into time-entry suggestions. This is the product's actual
+            // output, and until this call site existed `SuggestionEngine` had six callers, all
+            // tests — so `suggestions` sat at 0 rows for the app's entire life while the recap
+            // rendered an empty card stack. Same class as `daily_rollups` above: a job that is
+            // never invoked cannot log a failure.
+            //
+            // Runs BEFORE refreshToday so the recap this pass builds includes what was just made.
+            // Config is passed through rather than defaulted: `suggestions.increment_minutes`,
+            // `round_up_bias` and `standalone_threshold_minutes` were previously read in exactly
+            // one place — SettingsView, where they were only DISPLAYED.
+            let suggestions = SuggestionEngine(
+                db: db, clock: SystemClock(),
+                rounding: RoundingPolicy(incrementMinutes: config.suggestions.incrementMinutes,
+                                         roundUpBias: config.suggestions.roundUpBias),
+                standaloneThresholdMinutes: config.suggestions.standaloneThresholdMinutes,
+                selfPersonId: (try? db.selfPerson())?.id)
+            _ = try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
+
             try refreshToday()
             try writeRollups()
             try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
