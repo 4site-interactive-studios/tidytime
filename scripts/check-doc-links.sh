@@ -11,7 +11,10 @@ out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
 
 # For every markdown file, pull out `](target)` link targets and check each one.
-find . -name '*.md' -not -path '*/.git/*' -not -path '*/.build/*' -not -path '*/checkouts/*' | while IFS= read -r f; do
+# `.claude/` holds git worktrees — nested checkouts of THIS repo at other commits. Scanning them
+# double-counts every file and reports links as broken that are fine on the branch you are on.
+find . -name '*.md' -not -path '*/.git/*' -not -path '*/.build/*' -not -path '*/checkouts/*' \
+     -not -path './.claude/*' | while IFS= read -r f; do
   dir="$(dirname "$f")"
   grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\(//; s/\)$//' | while IFS= read -r link; do
     case "$link" in
