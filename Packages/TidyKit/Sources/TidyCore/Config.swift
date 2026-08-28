@@ -86,19 +86,28 @@ public struct Config: Codable, Sendable, Equatable {
         /// header will not accept it and the web app will not accept the bare number.
         public var productiveOrgSlug: String
         public var productivePersonId: String
+        /// Your Productive login email. Used to resolve ``productivePersonId`` automatically from
+        /// the synced people table, so nobody has to look an internal id up by hand.
+        ///
+        /// This is load-bearing, not a convenience: with no person id, `ProductiveSync` fetches
+        /// **every task in the organization** rather than yours, and skips time entries entirely
+        /// (`if let personId = selfId ?? assigneeId`). Both of those look like "sync is broken".
+        public var productiveSelfEmail: String
         public var timezone: String
         public init(productiveOrganizationId: String = "", productiveOrgSlug: String = "",
-                    productivePersonId: String = "",
+                    productivePersonId: String = "", productiveSelfEmail: String = "",
                     timezone: String = "America/New_York") {
             self.productiveOrganizationId = productiveOrganizationId
             self.productiveOrgSlug = productiveOrgSlug
             self.productivePersonId = productivePersonId
+            self.productiveSelfEmail = productiveSelfEmail
             self.timezone = timezone
         }
         enum CodingKeys: String, CodingKey {
             case productiveOrganizationId = "productive_organization_id"
             case productiveOrgSlug = "productive_org_slug"
             case productivePersonId = "productive_person_id"
+            case productiveSelfEmail = "productive_self_email"
             case timezone
         }
         public init(from d: Decoder) throws {
@@ -106,6 +115,7 @@ public struct Config: Codable, Sendable, Equatable {
             productiveOrganizationId = try c.decodeIfPresent(String.self, forKey: .productiveOrganizationId) ?? z.productiveOrganizationId
             productiveOrgSlug = try c.decodeIfPresent(String.self, forKey: .productiveOrgSlug) ?? z.productiveOrgSlug
             productivePersonId = try c.decodeIfPresent(String.self, forKey: .productivePersonId) ?? z.productivePersonId
+            productiveSelfEmail = try c.decodeIfPresent(String.self, forKey: .productiveSelfEmail) ?? z.productiveSelfEmail
             timezone = try c.decodeIfPresent(String.self, forKey: .timezone) ?? z.timezone
         }
     }

@@ -143,7 +143,11 @@ public struct IngestCoordinator: Sendable {
             let client = LiveProductiveClient(http: http, builder: builder, clock: clock, logger: logger)
             let (after, before) = Self.dateWindow(days: 30, clock: clock, tz: timeZone)
             let personId = config.organization.productivePersonId
-            try await ProductiveSync(client: client, db: db, clock: clock)
+            // selfEmail was never passed, so `selfId` was always nil — which silently meant
+            // "fetch every task in the org" and "never fetch time entries at all".
+            let selfEmail = config.organization.productiveSelfEmail
+            try await ProductiveSync(client: client, db: db, clock: clock,
+                                     selfEmail: selfEmail.isEmpty ? nil : selfEmail)
                 .run(assigneeId: personId.isEmpty || personId == "resolved_at_setup" ? nil : personId,
                      after: after, before: before)
 

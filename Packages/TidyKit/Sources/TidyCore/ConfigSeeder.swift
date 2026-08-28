@@ -81,9 +81,10 @@ public struct ConfigSeeder: Sendable {
       "_about": "TidyTime settings. NON-SECRET values only — every token and API key lives in the macOS Keychain, never here. Anything you leave out uses the app's built-in default, so it is safe to delete a line you do not need. The full list of tunables is config.example.json in the TidyTime repo. Quit and reopen TidyTime after editing.",
 
       "organization": {
-        "_help": "Open any page in Productive and look at the address bar: app.productive.io/2650-acme-inc/... -> productive_organization_id is the NUMBER (2650), productive_org_slug is the WHOLE first segment (2650-acme-inc). They are different strings and both are needed: the API uses the number, task deep links use the slug.",
+        "_help": "Open any page in Productive and look at the address bar: app.productive.io/2650-acme-inc/... -> productive_organization_id is the NUMBER (2650), productive_org_slug is the WHOLE first segment (2650-acme-inc). They are different strings and both are needed: the API uses the number, task deep links use the slug. Set productive_self_email to your Productive login email — without it TidyTime cannot tell which tasks are yours, so it pulls the whole organization and never syncs your time entries.",
         "productive_organization_id": "",
         "productive_org_slug": "",
+        "productive_self_email": "",
         "productive_person_id": "",
         "timezone": "America/New_York"
       },

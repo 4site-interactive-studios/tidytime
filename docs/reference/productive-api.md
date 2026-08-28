@@ -486,7 +486,9 @@ Two facts, both of which the original implementation got wrong:
    the singular one.
 
 The id in the URL is the **task id** (the same `id` the API returns), not the human-facing task
-number.
+number. **Verified against live data 2026-08-28:** `pd_tasks` row `id=18609405` carries
+`task_number=29`, and no synced task has `task_number=18609405`. `task_number` is a per-project
+sequence; `id` is workspace-wide. So `{task_id}` substitutes `pd_tasks.id`.
 
 `config.productive.task_deep_link_pattern` supports three tokens:
 

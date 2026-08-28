@@ -1316,3 +1316,40 @@ swift-testing still runs and prints `Test run with 0 tests in 0 suites passed` *
 real total has scrolled by. A human reads the final line and concludes nothing ran. `make test` now
 re-states the XCTest summary as the last line, and preserves the exit status through the pipe with
 `set -o pipefail` so a failure still fails the target.
+
+### 2a. A second blocker behind the decode fix — Productive never knew who "you" are
+
+Found while doing the live verification item 2 asked for. Fixing the decode was necessary and not
+sufficient: `pd_time_entries` would have stayed at zero regardless.
+
+`ProductiveSync.run()` computes `effectiveAssignee = assigneeId ?? selfId`, where
+`selfId = db.resolveSelf(email: selfEmail)`. But `IngestCoordinator` constructed
+`ProductiveSync(client:db:clock:)` — **without `selfEmail`**, which defaults to `nil`. And
+`organization.productive_person_id` was unset on this machine. So both inputs were nil, with two
+consequences that both present as "sync is broken":
+
+1. `fetchTasks(assigneeId: nil)` fetches **every task in the organization** rather than the user's —
+   up to the 100-page × 200 safety valve, 20,000 tasks. Observed live: the run went quiet for
+   minutes at 0.1% CPU with nothing written, because `fetchAll` accumulates every page before
+   `upsertTasks` sees any of it. Same all-or-nothing shape as the Fathom bug, on a different source.
+2. Time entries are gated on `if let personId = selfId ?? assigneeId` — with both nil the fetch is
+   **skipped entirely, silently**. No error, no log line, no `sync_state` row. `pd_time_entries`
+   could never have been non-zero no matter how well tasks decoded.
+
+The report attributed both empty tables solely to the decode abort. That is exactly right for
+`pd_tasks`, and right as the *first* blocker for `pd_time_entries` — but a second one sat behind it,
+which is the third time this session that pattern has appeared (`status` behind `task_number`,
+this behind the decode).
+
+**Fix:** added `organization.productive_self_email` and wired it through, so `resolveSelf` maps the
+email to a person id from the already-synced `pd_people` and nobody has to look an internal id up by
+hand. It resolves both consequences at once: the task fetch gets filtered to the user, and time
+entries start running.
+
+Email rather than reusing `productive_person_id` because the id is not discoverable without already
+having synced — a bootstrapping problem the user cannot solve from the UI. On this machine the
+people table contains **two** matching rows (`bryan@4sitestudios.com` → 32510 and
+`bryan.casler@gmail.com` → 32842), so guessing by name would have picked the wrong account half the
+time; the email disambiguates.
+
+`productive_person_id` still wins when set, so an existing config is unaffected.

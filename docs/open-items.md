@@ -59,7 +59,23 @@ box and stamp the date when resolved.
      slug. `{org}` was substituting the number into a web URL.
   2. **The path is `/tasks/task/<id>`** — plural collection, then singular — not `/task/<id>`.
 
-  The trailing id is the **task id** (the same `id` the API returns), not the task number.
+  The trailing id is the **task id** (the same `id` the API returns), **not** the task number —
+  confirmed from live data on 2026-08-28 once tasks actually synced, rather than assumed:
+
+  ```sql
+  sqlite> SELECT id, task_number, title FROM pd_tasks WHERE id='18609405';
+  18609405|29|Define RaiseMore: Single Step Lightbox MVP Metrics
+
+  sqlite> SELECT id FROM pd_tasks WHERE task_number=18609405;
+  (no rows)
+  ```
+
+  The row exists under `id`, carries `task_number = 29`, and nothing in 11,631 synced tasks has
+  that value as a `task_number`. `task_number` is a per-project sequence (1–28,431 across this
+  workspace); ids are workspace-wide and three orders of magnitude larger. So
+  `{task_id}` must substitute `pd_tasks.id`, which is what `PDMapper.task` already stores from
+  `JSONAPIResource.id`. No change needed to the substitution — but it is now verified rather than
+  inferred, which is the whole point of A2.
 
   Resolution: `organization.productive_org_slug` added to config, an `{org_slug}` token added to
   the substitution, and the default changed to
