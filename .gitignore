@@ -15,7 +15,10 @@ TidyTime.xcodeproj/
 
 # --- Build output ---
 .build/
-build/
+# Anchored to the repo root. Unanchored `build/` also matched `docs/build/`, so four setup guides
+# (signing-and-tcc, environment-setup, testing-strategy, xcodegen-spec — 931 lines) were silently
+# excluded from every clone and every doc link into them was broken.
+/build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
