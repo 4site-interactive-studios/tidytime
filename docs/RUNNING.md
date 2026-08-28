@@ -114,13 +114,24 @@ Assistant → Create a Certificate → type "Code Signing") also gives a stable 
 ✔ `codesign -dv --verbose=2 <built app>` shows a stable Team ID across rebuilds.
 → [build/signing-and-tcc.md](build/signing-and-tcc.md) · guardrail **G7**
 
-**4 · Config.**
+**4 · Config.** Nothing to copy. The app writes a starter config on first launch and never
+overwrites it:
+
 ```bash
-cp config.example.json config.json
+open "$HOME/Library/Application Support/TidyTime/config.json"   # exists after the first launch
 ```
-Set `organization.*` (Productive org + person id) and `google.*`; review `capture.*`
-(`detection_interval_seconds`, `content_interval_seconds`, `separate_chats_by_path`,
-`identity_query_keys`) and `ai.*`. Resolve the entries listed in `_build_time_checks`.
+
+Note the location: the runtime file lives in **Application Support**, not the repo. A
+`config.json` in the repo root is read by nothing (earlier revisions of this doc said to copy one
+there — it never took effect).
+
+Set `organization.productive_organization_id` + `productive_org_slug` and `google.client_id`.
+Every key you leave out uses the compiled default, so the starter file is deliberately short;
+[config.example.json](../config.example.json) is the full reference for what else can be tuned
+(`capture.*`, `ai.*`, and the entries listed in its `_build_time_checks`). Copy a block out of it
+into your config.json when you actually want to change that block — the starter omits `ai.*` on
+purpose, because the example's model slugs are unverified and its null Claude prices would log
+`$0` and disable that model's budget cap.
 **No secrets here** — tokens live in the Keychain (**G6**).
 
 **5 · Build and run.**

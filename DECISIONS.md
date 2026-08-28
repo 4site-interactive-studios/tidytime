@@ -849,3 +849,52 @@ and Slack items below, which is why it was worth pinning precisely rather than i
 
 A `-dirty` suffix marks a build made from an unclean tree: `8dda588` with uncommitted edits is a
 lie, and this whole entry exists because a build misrepresented itself.
+
+### 1. The app now writes `config.json` on first launch
+
+Confirmed exactly as reported: `AppPaths.ensureDirectories()` created the support and logs
+directories, and **nothing in the tree ever wrote `configURL`** — all six references were readers
+or path-printers. A fresh install ran wholly on compiled defaults, with
+`organization.productive_organization_id == ""` → `IngestCoordinator.readiness(.productive)` =
+`.missingConfig` → Productive skipped forever. That is why all five `pd_*` tables had 0 rows,
+logged 2,259 times as `ingest skipped … config organization.productive_organization_id is unset`.
+Not a stale-build artifact: those three files are byte-identical between the Trash build and HEAD.
+
+**Seeding lives in a new `ConfigSeeder`, not in `ensureDirectories()`.** That function's contract
+is filesystem *layout*; file *content* is policy. The `tidytime-doctor` CLI resolves the same paths
+and is written specifically to avoid mutating the support directory — folding a write into a path
+resolver would make it do so as a side effect, and every test that calls `ensureDirectories` on a
+temp dir would silently acquire a config file.
+
+**The seed is a subset of `config.example.json`, not a copy.** Absent blocks and absent fields both
+fall back to compiled defaults, so omitting is safe and writing is a commitment. Seeded:
+`organization` (org id, person id, timezone) and `google` (client_id, internal_domains) — the keys
+a user must actually set — plus `_about`/`_help` prose, since JSON has no comments and unknown keys
+are ignored by the decoder. Omitted and why:
+
+- **The whole `ai` block.** Unconfigured, `AIRouter` returns `.failed("no route for job")` and
+  sends nothing — a clean state. The example would replace it with model slugs its own
+  `_build_time_checks` flags as unconfirmed, plus a **null-priced** Claude entry that `ModelCost`
+  values at `$0` — silently disabling that model's G5 daily cap. A budget cap that reads zero spend
+  is worse than no cap, because it looks like it is working.
+- **Every `REPLACE_WITH_…` placeholder.** `google.client_id` is the sharpest: it is the one
+  placeholder with no guard, and a non-empty value defeats the `.isEmpty` checks in both
+  `IngestCoordinator` and `signInWithGoogle`, trading a precise "add your Client ID" tip for an
+  opaque OAuth error against a bogus client.
+- **`productive`.** Its `task_deep_link_pattern` was wrong on both the org token and the path (see
+  item 2). Seeding a plausible-looking broken URL is worse than leaving the default.
+- **`capture`, `sessionization`, `suggestions`, `recap`, `nudges`, `retention_days`, `ingest`.**
+  All equal their compiled defaults; seeding them freezes today's numbers into every install where
+  a future default improvement can never reach them.
+
+**No-overwrite is absolute** — existence is the only test, and the file's contents are never read.
+The machine this was found on is the argument: its `config.json` had been hand-written hours
+earlier with a real org id and a corrected deep-link pattern. An overwriting *or merging* seeder
+destroys that. An empty or corrupt file is still a file and is likewise left alone; replacing it
+would destroy the evidence of the parse error the user is trying to fix. Failure to write is
+reported and logged, never fatal — a read-only support directory must not stop the app.
+
+**Doc bug found while fixing this:** README.md and RUNNING.md both said
+`cp config.example.json config.json`, which puts the file in the **repo root**. The app reads
+`~/Library/Application Support/TidyTime/config.json`. That instruction has never had any effect on
+a running app. Both now point at the real path and say the app creates it.

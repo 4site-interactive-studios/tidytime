@@ -99,6 +99,11 @@ public final class AppEnvironment: ObservableObject {
     public init(paths: AppPaths? = nil) throws {
         let resolved = try (paths ?? AppPaths.standard()).ensureDirectories()
         self.paths = resolved
+        // Give a fresh install the config file that Doctor, Settings, and permissions-setup.md all
+        // tell the user to open. Kept out of `ensureDirectories()`, whose contract is filesystem
+        // layout, not content — the doctor CLI resolves the same paths and must never mutate the
+        // support directory as a side effect. Never overwrites; failure is non-fatal.
+        let seeded = ConfigSeeder().seedIfMissing(at: resolved.configURL)
         self.config = ConfigLoader().loadOrDefault(from: resolved.configURL)
         self.db = try AppDatabase.open(at: resolved.databaseURL)
         let store = KeychainSecretStore()
@@ -118,6 +123,7 @@ public final class AppEnvironment: ObservableObject {
         db.recordRunningBuild(build)
         logger.info("environment ready", [
             "db": resolved.databaseURL.lastPathComponent,
+            "config": seeded.logValue,
             "version": build.version,
             "git_sha": build.gitSHA,
             "built_at": build.builtAt,

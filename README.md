@@ -69,7 +69,7 @@ leaves the machine. Every cloud AI call is metered and budget-capped. Full archi
 | `project.yml` | XcodeGen spec for the app target |
 | `App/` | Thin app shell (`@main`, Info.plist, entitlements) |
 | `Packages/TidyKit/` | All logic, as SwiftPM library targets |
-| `config.example.json` | Non-secret config template (copy to `config.json`) |
+| `config.example.json` | Reference for every non-secret setting. **Not** the runtime file — the app writes a starter `~/Library/Application Support/TidyTime/config.json` on first launch and never overwrites it. |
 
 ## Getting started (developer)
 
@@ -79,7 +79,6 @@ Xcode 16+, [Homebrew](https://brew.sh). Hardware floor: Apple Silicon (M2 or new
 ```bash
 make bootstrap                             # installs XcodeGen, generates TidyTime.xcodeproj
 cp Local.xcconfig.example Local.xcconfig   # then set DEVELOPMENT_TEAM (a free Apple ID works)
-cp config.example.json config.json         # non-secret settings; edit as needed
 make build                                 # build the app
 make run                                   # build + launch (icon appears in the menu bar)
 make test                                  # run the TidyKit unit tests
