@@ -230,11 +230,23 @@ the same change ([CLAUDE.md](../CLAUDE.md) "When docs and reality disagree").
 
 ### B8 — Keychain `SecretStore` account naming (not yet canonical)
 
-- [ ] **Resolved** (date: ____ )
+- [x] **Resolved** (date: 2026-08-28 ) — the account names are **canonical, exact, and dotted**,
+  defined once as the `SecretKey` constants in
+  [`SecretStore.swift`](../Packages/TidyKit/Sources/TidyCore/SecretStore.swift) under service
+  `com.4site.TidyTime`:
+  `productive.token`, `fathom.api_key`, `google.client_secret`, `google.refresh_token`,
+  `slack.user_token`, `fireworks.api_key`, `anthropic.api_key` — seven, matching `SecretKey.all`.
+  (`google.client_id` is **not** among them: it is non-secret and lives in `config.json`.)
+  The §0 table in [permissions-setup.md](permissions-setup.md) matches `SecretKey.all` exactly
+  (a test pins that the catalog stays complete against it). Two leftovers fixed with this entry:
+  that file still introduced the table as a "suggested convention", contradicting its own header;
+  and the underscored names below survived `284dc52` because it rewrote only the first line of this
+  wrapped bullet.
 - **Question:** What are the exact Keychain service/account keys `SecretStore` reads for each token?
 - **Why it matters:** [permissions-setup.md](permissions-setup.md) documents a **suggested** account
   convention (`productive.token`, `fathom.api_key`, `slack.user_token`, `google.refresh_token`,
-  `fireworks_api_key`, `anthropic_api_key`) but no doc canonically defines them; the setup checklist
+  `fireworks.api_key`, `anthropic.api_key` — note **dots**, not underscores) but no doc canonically
+  defined them; the setup checklist
   and the `KeychainSecretStore` implementation must agree or the app can't read a pasted secret.
 - **Resolve by:** **Phase 0** (Keychain plumbing) / each provider's phase.
 - **How to resolve:** Define the account keys once in `TidyCore`'s `KeychainSecretStore`

@@ -39,8 +39,12 @@ a stable identity + the fixed bundle id `com.4site.TidyTime` **before** touching
 
 All items live under Keychain service `com.4site.TidyTime` via `SecretStore`
 ([module-map](architecture/module-map.md#protocol-seams-the-extension-points),
-`KeychainSecretStore`). Account names below are the **suggested convention** (confirm against the
-`SecretStore` keys the app actually reads — see [open-items.md](open-items.md)).
+`KeychainSecretStore`). The account names below are **exact and authoritative** — they are the
+`SecretKey` constants in
+[`SecretStore.swift`](../Packages/TidyKit/Sources/TidyCore/SecretStore.swift), verified against
+`SecretKey.all` on 2026-08-28. They are **dotted**, not underscored, and a typo means the app
+silently sees no credential. (This paragraph used to call them a "suggested convention", which
+contradicted both the table header below and the note after it.)
 
 | Step | Secret | Keychain account (**exact**, must match `SecretKey`) | Non-secret companion in `config.json` |
 |---|---|---|---|
@@ -192,8 +196,13 @@ Read-only mirror of companies, projects, tasks, time entries, people
 **Click-path**
 1. In the Productive web app: **Settings → API integrations → Generate new token**. Copy the token.
 2. Note your **Organization Id** (numeric) — it's on the same Settings page and in the web-app URL.
-3. In TidyTime **Settings**, paste the **token** (→ Keychain) and the **organization id** (→
-   `config.json` `organization.productive_organization_id`; it is non-secret).
+3. Paste the **token** in TidyTime → **Settings → Credentials** (→ Keychain).
+4. Put the **organization id** in `config.json` — **not** in Settings. There is no field for it
+   there: the Settings → General tab is a read-only view of your config, and Credentials only
+   writes to the Keychain. Open
+   `~/Library/Application Support/TidyTime/config.json` (the app creates it on first launch) and set
+   `organization.productive_organization_id`, then quit and reopen TidyTime. It is non-secret, which
+   is exactly why it lives in the file rather than the Keychain.
 
 **Secrets:** token → Keychain (`productive.token`); auth headers are `X-Auth-Token` +
 `X-Organization-Id`. Org id → `config.json`.

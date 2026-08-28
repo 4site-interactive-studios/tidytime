@@ -1136,3 +1136,44 @@ re-rolled alongside today.** The timer only ever knows about the current day, so
 yesterday's row is frozen at whatever the last pre-midnight pass computed and permanently loses its
 final minutes. `upsertRollup` keys on the day, so re-rolling is idempotent — pinned by a test that
 runs four passes and asserts exactly two rows.
+
+### 6. Documentation corrections — one of which pointed at the wrong file
+
+**6.1 — Step 6.3 told the user to paste the organization id into a field that does not exist.**
+Confirmed: `SettingsView` has three tabs; General is a read-only dump built from `Text` labels with
+zero editable controls (its own header even reads "Config is a plain JSON file you can edit
+directly"), and Credentials writes **only** to the Keychain via `secrets.set`. No code path in
+`SettingsView` writes `config.json` at all. `CredentialCatalog` and `TroubleshootingTips` already
+said the right thing; only the markdown was wrong. Now split into two steps — token → Settings →
+Credentials, org id → `config.json` — and it says explicitly that there is no Settings field, so a
+reader who goes looking stops looking.
+
+**6.2 — The §0 lead-in contradicted its own table.** It introduced the account names as "the
+**suggested convention** (confirm against the `SecretStore` keys the app actually reads)" while the
+table header two lines below said "**exact**, must match `SecretKey`" and the paragraph below it
+said "the account names above are exact". `284dc52` rewrote the table and added that paragraph but
+left the lead-in as untouched context. Replaced with an unambiguous statement, stamped with the
+verification date.
+
+**6.3 — The report was half right, and pointed at the wrong file.** The claim was that
+`permissions-setup.md` lists `fireworks_api_key` / `anthropic_api_key` with underscores. It does
+not — **that table has been correct since `284dc52`**: lines 52–53 are `fireworks.api_key` and
+`anthropic.api_key`, dotted, and the table matches `SecretKey.all` completely (all seven, including
+`google.client_secret` added later by `f076d4d`). The surviving underscored names were in
+`docs/open-items.md`, inside **B8's own "why it matters" bullet** — `284dc52`'s open-items hunk
+rewrote only the first line of that wrapped bullet and never touched the continuation line carrying
+the last two names. A doc describing a naming bug, still containing the bug. Fixed there.
+
+Open item **B8 resolved**, with the canonical list written into it: seven `SecretKey` constants
+under service `com.4site.TidyTime`. Worth recording that `google.client_id` is deliberately **not**
+among them — it is non-secret and lives in `config.json`. I got that wrong in a first draft of the
+resolution text and caught it by reading `SecretKey.all` rather than trusting the surrounding prose,
+which is the same failure mode this item is about.
+
+**Found but NOT fixed — `make lint` is red at HEAD.** `scripts/check-doc-links.sh` reports **26
+broken links** and exits 1. Every one points into `docs/build/` (`signing-and-tcc.md`,
+`testing-strategy.md`, `environment-setup.md`, `xcodegen-spec.md`) — a directory that does not exist
+in the tree. This is pre-existing at `8dda588`, is unrelated to every item in this sweep, and none
+of my edits added to the count (verified: 26 before, 26 after). Fixing it means either writing four
+missing docs or rewriting links across a dozen files — a scope call for the owner, not something to
+fold silently into a defect sweep. Flagged rather than fixed.
