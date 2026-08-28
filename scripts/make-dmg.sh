@@ -76,8 +76,13 @@ xcodegen generate
 # Provenance stamped into Info.plist and read back by TidyCore's BuildInfo, so the shipped dmg can
 # always answer "which commit is this?" — the question that had no answer on 2026-08-28, when a
 # stale build kept relaunching from the Trash and every diagnostic just said "0.1.0".
-GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-git diff --quiet HEAD 2>/dev/null || GIT_SHA="$GIT_SHA-dirty"
+# `-dirty` only when a SHA was actually obtained — outside a git repo the naive form produces
+# "unknown-dirty", which reads as real provenance and suppresses the "no SHA" warning.
+if GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null)"; then
+  git diff --quiet HEAD 2>/dev/null || GIT_SHA="$GIT_SHA-dirty"
+else
+  GIT_SHA="unknown"
+fi
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "==> Building $APP_NAME ($CONFIG) from $GIT_SHA at $BUILT_AT"
 if [[ "$SIGNED" == "1" ]]; then

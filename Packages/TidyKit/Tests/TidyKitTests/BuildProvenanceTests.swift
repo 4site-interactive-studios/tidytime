@@ -82,6 +82,18 @@ final class BuildProvenanceTests: XCTestCase {
         XCTAssertTrue(current.contains("/Applications/TidyTime.app"))
     }
 
+    /// Regression: a build script that decorates the fallback must not read as real provenance.
+    /// `unknown-dirty` was produced outside a git repo by an earlier form of the Makefile stamp,
+    /// and equality-matching on "unknown" let it suppress the warning.
+    func testDecoratedUnknownStillCountsAsUnknown() {
+        for sha in ["unknown", "unknown-dirty", "unknown-dirty-whatever"] {
+            XCTAssertFalse(BuildInfo(gitSHA: sha).isProvenanceKnown,
+                           "\(sha) must not read as a real commit")
+        }
+        XCTAssertTrue(BuildInfo(gitSHA: "8dda588-dirty").isProvenanceKnown,
+                      "a real SHA with local edits is still provenance")
+    }
+
     func testUnknownProvenanceIsCalledOutExplicitly() {
         let input = DiagnosticsInput(
             appVersion: "0.1.0", osVersion: "macOS 26.5", deviceModel: "Mac15,3",
@@ -106,10 +118,7 @@ final class BuildProvenanceTests: XCTestCase {
 
         // The CLI reads these back out of the DB — that is how `tidytime-doctor` reports the APP's
         // build while running as a different binary entirely.
-        let extras = DiagnosticsAssembler.extras(
-            db: db,
-            build: BuildInfo(gitSHA: "irrelevant-cli-build"),
-            logURL: URL(fileURLWithPath: "/tmp/x.jsonl"))
+        let extras = DiagnosticsAssembler.extras(db: db, logURL: URL(fileURLWithPath: "/tmp/x.jsonl"))
         XCTAssertEqual(extras["last_run_build"], "0.1.0 (8dda588, built 2026-07-27T12:53:16Z)")
         XCTAssertEqual(extras["last_run_bundle_path"], "/Applications/TidyTime.app")
     }
@@ -117,8 +126,7 @@ final class BuildProvenanceTests: XCTestCase {
     /// A database written by a pre-provenance build must not claim a build it never recorded.
     func testDatabaseWithNoRecordedBuildSaysSo() throws {
         let db = try AppDatabase.inMemory()
-        let extras = DiagnosticsAssembler.extras(
-            db: db, build: BuildInfo(), logURL: URL(fileURLWithPath: "/tmp/x.jsonl"))
+        let extras = DiagnosticsAssembler.extras(db: db, logURL: URL(fileURLWithPath: "/tmp/x.jsonl"))
         XCTAssertTrue(extras["last_run_build"]?.contains("never recorded") == true)
     }
 

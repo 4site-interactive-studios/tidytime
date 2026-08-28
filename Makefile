@@ -9,7 +9,11 @@ DERIVED := .build/dd
 # Build provenance stamped into App/Info.plist (read back by TidyCore's BuildInfo) so the running
 # app, its logs, and the diagnostic bundle can all say WHICH COMMIT they are. `-dirty` marks a
 # build made from an unclean tree, because "8dda588" with uncommitted edits is a lie.
-GIT_SHA   := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+# Note the structure: `-dirty` is appended ONLY when a SHA was actually obtained. The naive
+# `$(git rev-parse … || echo unknown)$(git diff --quiet || echo -dirty)` yields "unknown-dirty"
+# outside a git repo — a string that reads as real provenance and suppresses the "no SHA" warning,
+# which is precisely the lie this feature exists to prevent.
+GIT_SHA   := $(shell sh -c 'sha=$$(git rev-parse --short HEAD 2>/dev/null) || { echo unknown; exit 0; }; git diff --quiet HEAD 2>/dev/null || sha="$$sha-dirty"; echo "$$sha"')
 BUILT_AT  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 STAMP     := TT_GIT_SHA=$(GIT_SHA) TT_BUILD_TIMESTAMP=$(BUILT_AT)
 

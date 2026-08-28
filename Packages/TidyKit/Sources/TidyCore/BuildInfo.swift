@@ -50,7 +50,11 @@ public struct BuildInfo: Sendable, Equatable {
 
     /// True when the build could not identify its own commit — surfaced so a reader knows the
     /// difference between "built from abc1234" and "we have no idea what this is".
-    public var isProvenanceKnown: Bool { gitSHA != Self.unknownValue }
+    ///
+    /// Matches on the **prefix**, not equality, so a build script that decorates the fallback
+    /// (`unknown-dirty` was a real bug here) still reads as unknown. Fail closed: a build wrongly
+    /// claiming to know its commit is the exact failure this whole feature exists to prevent.
+    public var isProvenanceKnown: Bool { !gitSHA.hasPrefix(Self.unknownValue) }
 
     /// One line for logs and the diagnostic bundle: `0.1.0 (8dda588, built 2026-07-27T12:53:16Z)`.
     public var summary: String {

@@ -898,3 +898,26 @@ reported and logged, never fatal — a read-only support directory must not stop
 `cp config.example.json config.json`, which puts the file in the **repo root**. The app reads
 `~/Library/Application Support/TidyTime/config.json`. That instruction has never had any effect on
 a running app. Both now point at the real path and say the app creates it.
+
+#### 0a. Follow-up: the provenance stamp could itself lie
+
+Caught by an adversarial review of the item-0 change, before it shipped further. The first form of
+the stamp was:
+
+```make
+GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+```
+
+Outside a git repo — an exported tarball, a `.git`-less copy — `rev-parse` fails to `unknown` and
+`git diff` *also* fails, appending `-dirty`. Result: `unknown-dirty`, which is not equal to
+`"unknown"`, so `isProvenanceKnown` returned **true** and the bundle suppressed its own
+"⚠️ carries no git SHA" warning while printing `Git SHA: unknown-dirty` as though it were real.
+
+A feature built to stop a build from misrepresenting itself, misrepresenting itself. Fixed on both
+sides: the shell now appends `-dirty` only when a SHA was actually obtained, and
+`isProvenanceKnown` matches on the `unknown` **prefix** rather than equality, so any future
+decoration of the fallback still fails closed. Pinned by test.
+
+Also removed: `DiagnosticsAssembler.extras(db:build:logURL:)` never read its `build:` argument —
+dead API that implied the caller's own provenance fed Extras, when the entire point of that
+function is that it does **not** (it reads `last_run_*` from the database instead).

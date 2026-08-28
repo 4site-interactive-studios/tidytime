@@ -36,7 +36,7 @@ public struct DiagnosticsAssembler: Sendable {
             permissions: permissions.statuses(),
             databaseSummary: (try? db.tableRowCounts()) ?? [:],
             recentLogLines: LogReader.tail(logURL, lines: logLines),
-            extras: Self.extras(db: db, build: build, logURL: logURL)
+            extras: Self.extras(db: db, logURL: logURL)
         )
     }
 
@@ -44,7 +44,7 @@ public struct DiagnosticsAssembler: Sendable {
     /// this process, so the `tidytime-doctor` CLI — a different binary, with its own provenance —
     /// still reports which build last ran the **app**. Without that split the CLI would cheerfully
     /// describe itself and answer the wrong question.
-    public static func extras(db: AppDatabase, build: BuildInfo, logURL: URL) -> [String: String] {
+    public static func extras(db: AppDatabase, logURL: URL) -> [String: String] {
         var out: [String: String] = [
             "build": Self.buildConfiguration,
             "applied_migrations": (try? db.appliedMigrations().joined(separator: ",")) ?? "",
