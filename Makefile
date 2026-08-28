@@ -37,8 +37,19 @@ run: build
 	open "$(DERIVED)/Build/Products/$(CONFIG)/TidyTime.app"
 
 ## test: run the TidyKit unit tests via SwiftPM (fast, no signing needed)
+#
+# The trailing summary matters. The suite is entirely XCTest, but swift-testing still runs and
+# prints "Test run with 0 tests in 0 suites passed" LAST — after the real XCTest total has scrolled
+# by. A human reads the final line and concludes nothing ran. Re-state the XCTest result at the end
+# so the last thing on screen answers "did my tests pass?".
 test:
-	cd Packages/TidyKit && swift test
+	@set -o pipefail; cd Packages/TidyKit && swift test 2>&1 | tee /tmp/tidytime-test.log; \
+	status=$$?; \
+	echo; \
+	summary=$$(grep -E "^Test Suite 'All tests' (passed|failed)" -A 1 /tmp/tidytime-test.log | tail -1); \
+	if [ -n "$$summary" ]; then echo "==> XCTest:$$summary"; \
+	else echo "==> XCTest: no summary line found — read the log above"; fi; \
+	exit $$status
 
 ## coverage: run tests with coverage and print a per-file report for our Sources
 coverage:

@@ -144,6 +144,27 @@ public enum DoctorTips {
         }
     }
 
+    /// The status text for an ingest row.
+    ///
+    /// A source can be `.ready` — it *can* run — while its last run failed. Rendering that as the
+    /// word "ready" in red was contradictory: the colour said broken, the word said fine, and the
+    /// reason sat collapsed behind "How to fix". The failure belongs in the row itself.
+    public static func ingestLabel(_ readiness: IngestCoordinator.Readiness,
+                                   lastError: String?) -> String {
+        guard readiness.canRun, let lastError, !lastError.isEmpty else {
+            return readiness.explanation
+        }
+        return "ready — last sync failed: \(summarize(lastError))"
+    }
+
+    /// First clause of an error, trimmed to fit a row. The full text stays in the tip below it.
+    static func summarize(_ error: String, limit: Int = 60) -> String {
+        let firstLine = error.split(separator: "\n").first.map(String.init) ?? error
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count > limit else { return trimmed }
+        return String(trimmed.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     // MARK: Ingest sources
 
     /// A tip for an ingest row. `configPath` lets steps name the exact config file on THIS machine.
@@ -157,7 +178,7 @@ public enum DoctorTips {
             guard let lastError, !lastError.isEmpty else { return nil }
             var steps = ["Last error: \(lastError)"]
             if let hint = hint(forLastError: lastError) { steps.append(hint) }
-            steps.append("Errors clear automatically after the next successful sync (every 15 minutes, or click “Sync now”).")
+            steps.append("Errors clear automatically after the next successful sync — every 15 minutes, or press “Sync now” at the bottom of this Sources list. (It is only here in Doctor; the menu bar popover has no sync button.)")
             return TroubleshootingTip(steps: steps)
 
         case .disabledByKillSwitch:
@@ -173,7 +194,7 @@ public enum DoctorTips {
                 "Open Productive in your browser and look at the address bar: the number right after “app.productive.io/” is it (for example app.productive.io/1234-yourcompany → 1234).",
                 "Open \(configPath) in any text editor.",
                 "Inside “organization”, set “productive_organization_id” to that number, in quotes.",
-                "Quit and reopen TidyTime, then click “Sync now”.",
+                "Quit and reopen TidyTime, then press “Sync now” at the bottom of the Sources list in this Doctor window. (It is only here; the menu bar popover has no sync button.)",
             ])
 
         case .missingConfig(let key) where key.contains("client_id"):

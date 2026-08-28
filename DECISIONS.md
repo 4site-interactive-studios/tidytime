@@ -1284,3 +1284,35 @@ actually lives.
 and `"status":1` — the live shapes, inverted from the doc on both fields. Verified by reverting the
 model to a strict `Int` decode with the new fixture in place: `ProductiveIngestTests` drops to zero
 passing and `testLiveTaskShapeDecodes` fails. The fixture now falsifies the bug it used to hide.
+
+### 4. Papercuts from live use
+
+All four real, all small, all confirmed against the code before changing anything. One report was
+wrong about the mechanism, which changed the fix.
+
+**`Sync now` looked broken.** The report attributed this to `counts`/`lastErrors` being loaded by
+`.onAppear` only. **Not accurate** — `DoctorView` already reloads on a 3s timer (added in round 3,
+so a fresh TCC grant shows without reopening the window). The observed symptom is real but the
+cause is different: a sync takes seconds to minutes, and the button gave **no in-progress state at
+all**, so the first visible change arrived long after the click. Fixed with what already existed:
+`AppEnvironment.ingestInFlight` is `@Published`, so the button now reads "Syncing…", disables
+itself, shows a spinner, and stamps a completion time on the falling edge — plus an immediate
+`reload()` there so counts update on completion rather than up to 3s later. No redundant refresh
+was added.
+
+**A row could read "ready" in red.** `ingestColor` returns red for a runnable source whose last sync
+errored, while the label still said "ready" — colour said broken, word said fine, and the reason sat
+collapsed behind "How to fix". The failure is now in the row:
+`ready — last sync failed: <first clause>`, via a pure `DoctorTips.ingestLabel` so it is unit-tested
+rather than eyeballed. The row is trimmed to one line (the new Fathom rate-limit message is a
+paragraph); the tip below still carries the untrimmed error, pinned by test.
+
+**Tips named a button without saying where it is.** Both call sites now say it is at the bottom of
+the Sources list in Doctor **and** that the menu bar popover has no sync button — the popover is
+where a person naturally looks first.
+
+**`make test` ended on a line that reads as zero tests.** The suite is entirely XCTest, but
+swift-testing still runs and prints `Test run with 0 tests in 0 suites passed` **last**, after the
+real total has scrolled by. A human reads the final line and concludes nothing ran. `make test` now
+re-states the XCTest summary as the last line, and preserves the exit status through the pipe with
+`set -o pipefail` so a failure still fails the target.

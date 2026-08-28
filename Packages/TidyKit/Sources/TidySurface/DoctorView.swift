@@ -15,6 +15,10 @@ public struct DoctorView: View {
     @State private var copied = false
     /// Which "How to fix" groups are open, keyed by row name — survives the 3s reload timer.
     @State private var expanded: Set<String> = []
+    /// Wall-clock of the last completed manual sync, so the button can confirm it did something.
+    @State private var syncedAt: String?
+    /// Tracks the in-flight edge so completion is recorded exactly once.
+    @State private var wasSyncing = false
 
     public init(env: AppEnvironment) { self.env = env }
 
@@ -58,8 +62,9 @@ public struct DoctorView: View {
                             HStack {
                                 Text(source.rawValue).font(.system(size: 12, design: .monospaced))
                                 Spacer()
-                                Text(readiness.explanation)
+                                Text(DoctorTips.ingestLabel(readiness, lastError: lastError))
                                     .font(.system(size: 12))
+                                    .multilineTextAlignment(.trailing)
                                     .foregroundStyle(ingestColor(readiness, lastError: lastError))
                             }
                             if let tip = DoctorTips.tip(for: source, readiness: readiness,
@@ -69,7 +74,24 @@ public struct DoctorView: View {
                             }
                         }
                     }
-                    Button("Sync now") { env.runIngestOnce() }.font(.caption)
+                    // A sync takes seconds to minutes. With no in-progress state the button looked
+                    // dead on click — the rows do refresh on the 3s timer above, but not until the
+                    // run finishes, so the first feedback arrived long after the click.
+                    HStack(spacing: 8) {
+                        Button(env.ingestInFlight ? "Syncing…" : "Sync now") {
+                            syncedAt = nil
+                            env.runIngestOnce()
+                        }
+                        .font(.caption)
+                        .disabled(env.ingestInFlight)
+
+                        if env.ingestInFlight {
+                            ProgressView().controlSize(.small)
+                        } else if let syncedAt {
+                            Text("Finished \(syncedAt)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Text("A source with zero rows is idle for the reason shown — not silently broken.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -106,6 +128,14 @@ public struct DoctorView: View {
         // reopening it — a fresh grant looked "broken" to the first real user because this view
         // only reloaded onAppear.
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in reload() }
+        .onChange(of: env.ingestInFlight) { _, running in
+            if wasSyncing && !running {
+                let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+                syncedAt = f.string(from: Date())
+                reload()   // show the new counts immediately rather than up to 3s later
+            }
+            wasSyncing = running
+        }
     }
 
     // MARK: helpers
