@@ -921,3 +921,69 @@ decoration of the fallback still fails closed. Pinned by test.
 Also removed: `DiagnosticsAssembler.extras(db:build:logURL:)` never read its `build:` argument —
 dead API that implied the caller's own provenance fed Extras, when the entire point of that
 function is that it does **not** (it reads `last_run_*` from the database instead).
+
+### 3. Slack — one unreachable channel took down the whole source
+
+`SlackSync.run()` iterated conversations in a bare `for` loop with no per-conversation error
+boundary. `try await client.history(...)` was the abort: `channel_not_found` on `C07C12FMTEF`
+unwound the entire loop, so every conversation ordered after it was skipped and
+`IngestCoordinator` recorded the whole source as failed. The live DB shows the shape exactly —
+120 per-conversation `slack:<id>` rows all stamped `18:44:13`, the top-level `slack` row stamped
+`18:52:28` with the error, and **`last_success_at` NULL**: one 8m15s pass that synced 120
+conversations and then threw. Slack had never once completed a run, despite 7,309 banked messages.
+
+Not a stale-build artifact — the loop has been unguarded since the original Slack ingest commit;
+neither `43ca776` nor `30406ad` touched it.
+
+**The enabling defect was the error type, not the loop.** `checkOK` collapsed every `ok:false`
+body into `IngestError.transport("slack error: \(code)")`, so `channel_not_found` (skip),
+`ratelimited` (back off) and `invalid_auth` (stop) were indistinguishable at every catch site —
+skip-vs-retry-vs-abort was structurally impossible. Fixed first: `IngestError.slack(code:method:)`
+carries the code as a field. `description` still renders `transport error: slack error: <code>` so
+existing Doctor hints and log scraping keep matching. `method` is carried because the same code
+means different things per method.
+
+**Answering the question that was asked — `channel_not_found` is not sufficient.** Verified against
+Slack's live method references on 2026-08-28:
+
+- `not_in_channel` is documented on `conversations.history` as "the token does not have access to
+  the proper channel" — membership for *this* channel, not authorization in general.
+- Archiving a **public** channel drops its membership roster, so history then returns
+  `not_in_channel`, **not** `is_archived` — and `conversations.join` cannot recover because *that*
+  returns `is_archived`. Permanently unreachable via a code that never mentions archiving.
+- `is_archived` is documented only on **mutating** methods; Slack blocks writes to archived
+  channels and permits reads. Handled anyway — cheap, and the split is not guaranteed to hold.
+- Which code a **left private channel** returns is documented nowhere. Treat `channel_not_found`
+  and `not_in_channel` as interchangeable outcomes of the same real-world event.
+- `conversation_not_found` **does not exist** in Slack's API. A test pins that we never add a
+  branch for it.
+
+Unknown codes classify as **fatal**, not skippable — fail closed. Silently skipping conversations
+on an unrecognized error is how a sync goes quietly and permanently empty. `ratelimited` is
+explicitly *not* a skip: skipping would drop real messages and leave the cursor wrong, and Slack
+meters per method per workspace per app, so a 429 on one channel predicts one on the next.
+
+**Persistence with a cooldown, not a tombstone.** The unreachable marker goes in
+`sync_state.last_error` on the existing `slack:<conv>` row — no migration, and it survives restarts,
+which an in-memory set could not (`IngestCoordinator` builds a fresh `SlackSync` every pass).
+Re-probed after 24h rather than skipped forever, because Slack documents that conversation IDs are
+**not stable** (a shared private channel can flip `G…` → `C…`), so a stored id can return
+`channel_not_found` for a channel that still exists; and a rejoined channel should heal without the
+user knowing this state exists. 96 pointless requests a day become one. A successful pass clears the
+marker.
+
+"Log once" falls out of the persistence: the info line is emitted only on the transition into
+unreachable, so it appears once per outage rather than every fifteen minutes.
+
+**Deliberately NOT changed:** `conversations.list` still omits `exclude_archived=true`, which
+`docs/reference/slack-api.md` prescribes and the code has never done. Adding it would change *what
+data is collected* — archived channels still have readable history and represent real past work —
+and that is a scope call for the owner, not a side effect of a crash fix. The per-conversation skip
+makes the noise harmless either way. Recorded here so the divergence is not lost.
+
+Also corrected in `docs/reference/slack-api.md` while verifying: the "Sept 2, 2025 → Mar 3, 2026"
+existing-install phase-in dates appear on **no** live Slack page (the May 2025 changelog, the June
+2025 clarification, the rate-limits guide, both method pages, the changelog index and the 2026
+recaps were all checked) and the live banner says the opposite. Removed as unsourced. Open item
+**B3 resolved favorably**: internal customer-built apps remain explicitly exempt, so the poll-only
+design holds.

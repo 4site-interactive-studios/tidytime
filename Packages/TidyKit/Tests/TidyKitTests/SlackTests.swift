@@ -149,14 +149,21 @@ final class SlackSyncTests: XCTestCase {
         XCTAssertEqual(http.sentRequests[0].headers["Authorization"], "Bearer xoxp-test")
     }
 
-    func testLiveClientSurfacesSlackError() async throws {
+    /// The Slack error code is now a typed field, not text interpolated into a message. That is
+    /// what makes skip-vs-retry-vs-abort possible at the call site.
+    func testLiveClientSurfacesSlackErrorCodeAndMethod() async throws {
         let http = FakeHTTPClient([.json(#"{"ok":false,"error":"not_authed"}"#)])
         let client = LiveSlackClient(http: http, token: "bad")
         do {
             _ = try await client.authTestUserId()
             XCTFail("expected error")
-        } catch let IngestError.transport(msg) {
-            XCTAssertTrue(msg.contains("not_authed"))
+        } catch let IngestError.slack(code, method) {
+            XCTAssertEqual(code, "not_authed")
+            XCTAssertEqual(method, "auth.test")
+            // The rendered message stays byte-compatible with the old shape so Doctor hints and
+            // log scraping keep matching.
+            XCTAssertTrue(IngestError.slack(code: code, method: method).description
+                .hasPrefix("transport error: slack error: not_authed"))
         }
     }
 }

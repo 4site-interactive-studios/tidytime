@@ -81,16 +81,18 @@ public struct LiveSlackClient: SlackClient {
     }
 
     private struct SlackError: Decodable { let ok: Bool; let error: String? }
-    private func checkOK(_ data: Data) throws {
+    /// Throws `.slack(code:method:)` so callers can tell a skippable per-conversation failure from
+    /// a fatal token failure. Previously every `ok:false` collapsed into one opaque string.
+    private func checkOK(_ data: Data, method: String) throws {
         if let e = try? JSONDecoder().decode(SlackError.self, from: data), e.ok == false {
-            throw IngestError.transport("slack error: \(e.error ?? "unknown")")
+            throw IngestError.slack(code: e.error ?? "unknown", method: method)
         }
     }
 
     public func authTestUserId() async throws -> String {
         struct R: Decodable { let user_id: String? }
         let data = try await get("auth.test")
-        try checkOK(data)
+        try checkOK(data, method: "auth.test")
         guard let uid = (try? JSONDecoder().decode(R.self, from: data))?.user_id else {
             throw IngestError.decoding("auth.test: no user_id")
         }
@@ -111,7 +113,7 @@ public struct LiveSlackClient: SlackClient {
             var q = [URLQueryItem(name: "limit", value: "200")]
             if let cursor, !cursor.isEmpty { q.append(URLQueryItem(name: "cursor", value: cursor)) }
             let data = try await get("users.list", q)
-            try checkOK(data)
+            try checkOK(data, method: "users.list")
             let r = try JSONDecoder().decode(R.self, from: data)
             for u in r.members ?? [] { names[u.id] = u.real_name ?? u.name }
             cursor = r.response_metadata?.next_cursor
@@ -138,7 +140,7 @@ public struct LiveSlackClient: SlackClient {
                      URLQueryItem(name: "limit", value: "200")]
             if let cursor, !cursor.isEmpty { q.append(URLQueryItem(name: "cursor", value: cursor)) }
             let data = try await get("conversations.list", q)
-            try checkOK(data)
+            try checkOK(data, method: "conversations.list")
             let r = try JSONDecoder().decode(R.self, from: data)
             for c in r.channels ?? [] {
                 let type: String = (c.is_im == true) ? "im" : (c.is_mpim == true) ? "mpim"
@@ -167,7 +169,7 @@ public struct LiveSlackClient: SlackClient {
             if let oldestTs { q.append(URLQueryItem(name: "oldest", value: oldestTs)) }
             if let cursor, !cursor.isEmpty { q.append(URLQueryItem(name: "cursor", value: cursor)) }
             let data = try await get("conversations.history", q)
-            try checkOK(data)
+            try checkOK(data, method: "conversations.history")
             let r = try JSONDecoder().decode(R.self, from: data)
             for m in r.messages ?? [] {
                 out.append(SlackMessageDTO(userId: m.user, text: m.text, ts: m.ts, threadTs: m.thread_ts))
@@ -179,20 +181,33 @@ public struct LiveSlackClient: SlackClient {
     }
 }
 
-public struct FakeSlackClient: SlackClient {
+public final class FakeSlackClient: SlackClient, @unchecked Sendable {
     public var selfUserId: String
     public var names: [String: String]
     public var conversations: [SlackConversation]
     public var messagesByConversation: [String: [SlackMessageDTO]]
+    /// Conversation id → Slack error code that `history` should raise, so a per-conversation
+    /// failure can be reproduced without a live workspace.
+    public var historyErrors: [String: String]
+    /// Conversation ids `history` was actually asked for, in order. Lets a test assert that a
+    /// conversation known unreachable is genuinely *not re-requested*, rather than merely tolerated.
+    public private(set) var historyRequests: [String] = []
+
     public init(selfUserId: String, names: [String: String] = [:], conversations: [SlackConversation] = [],
-                messagesByConversation: [String: [SlackMessageDTO]] = [:]) {
+                messagesByConversation: [String: [SlackMessageDTO]] = [:],
+                historyErrors: [String: String] = [:]) {
         self.selfUserId = selfUserId; self.names = names; self.conversations = conversations
         self.messagesByConversation = messagesByConversation
+        self.historyErrors = historyErrors
     }
     public func authTestUserId() async throws -> String { selfUserId }
     public func userNames() async throws -> [String: String] { names }
     public func listConversations() async throws -> [SlackConversation] { conversations }
     public func history(conversationId: String, oldestTs: String?) async throws -> [SlackMessageDTO] {
+        historyRequests.append(conversationId)
+        if let code = historyErrors[conversationId] {
+            throw IngestError.slack(code: code, method: "conversations.history")
+        }
         let all = messagesByConversation[conversationId] ?? []
         guard let oldestTs, let cutoff = Double(oldestTs) else { return all }
         return all.filter { (Double($0.ts) ?? 0) > cutoff }
@@ -245,11 +260,14 @@ public struct SlackSync: Sendable {
     /// 2014) because an absent cursor meant "everything". A bounded default keeps the first pull
     /// proportionate to what the product can attribute (and inside the retention window anyway).
     private let initialHistoryDays: Int
+    /// Optional so tests and the fake path stay silent; the app always passes one.
+    private let logger: TidyLogger?
 
     public init(client: SlackClient, db: AppDatabase, clock: TidyClock = SystemClock(),
-                sessionizer: SlackSessionizer = SlackSessionizer(), initialHistoryDays: Int = 30) {
+                sessionizer: SlackSessionizer = SlackSessionizer(), initialHistoryDays: Int = 30,
+                logger: TidyLogger? = nil) {
         self.client = client; self.db = db; self.clock = clock; self.sessionizer = sessionizer
-        self.initialHistoryDays = initialHistoryDays
+        self.initialHistoryDays = initialHistoryDays; self.logger = logger
     }
 
     @discardableResult
@@ -271,11 +289,49 @@ public struct SlackSync: Sendable {
             try db.backfillSlackUserNames(names)
         }
         let conversations = try await client.listConversations()
+        var skipped = 0
         let firstSyncOldest = "\(now - Int64(initialHistoryDays) * 86_400).000000"
         var total = 0
         for conv in conversations {
+            let stateKey = "slack:\(conv.id)"
+            let prior = (try? db.syncState(stateKey)) ?? nil
+
+            // A conversation already known unreachable is not re-requested every 15 minutes. It is
+            // re-probed once the cooldown expires rather than tombstoned forever, because Slack
+            // documents that conversation IDs are NOT stable — a private channel shared across
+            // orgs can change its `G…` prefix to `C…`, so a stored id can start returning
+            // channel_not_found for a channel that still exists. Rejoining a channel should also
+            // heal on its own without the user knowing this state exists.
+            if let since = Self.unreachableSince(prior), now - since < Self.unreachableCooldown {
+                continue
+            }
+
             let cursor = try db.latestSlackTs(conversationId: conv.id) ?? firstSyncOldest
-            let dtos = try await client.history(conversationId: conv.id, oldestTs: cursor)
+            let dtos: [SlackMessageDTO]
+            do {
+                dtos = try await client.history(conversationId: conv.id, oldestTs: cursor)
+            } catch let IngestError.slack(code, method) where SlackErrorClass.classify(code) == .skipConversation {
+                // One unreachable conversation is not a broken workspace. Record it, tell the user
+                // once, and keep syncing everything else — the whole run used to abort here, which
+                // is why `slack.last_success_at` had never been set despite 7,309 banked messages.
+                let firstTime = Self.unreachableSince(prior) == nil
+                try? db.saveSyncState(SyncState(
+                    source: stateKey,
+                    cursor: prior?.cursor,
+                    lastRunAt: now,
+                    lastSuccessAt: prior?.lastSuccessAt,
+                    lastError: "\(Self.unreachableMarker)\(now) \(code) (\(method))"))
+                if firstTime {
+                    logger?.info("slack conversation unreachable — skipping it, syncing the rest", [
+                        "conversation": conv.id,
+                        "name": conv.name ?? "(unnamed)",
+                        "code": code,
+                        "retry_after_hours": String(Self.unreachableCooldown / 3600),
+                    ])
+                }
+                skipped += 1
+                continue
+            }
             let records = dtos.map { dto in
                 SlackMessage(
                     conversationId: conv.id, conversationType: conv.type, conversationName: conv.name,
@@ -292,11 +348,36 @@ public struct SlackSync: Sendable {
             for session in sessionizer.sessions(conversationId: conv.id, name: conv.name, messages: all, createdAt: now) {
                 try db.insertSession(session)
             }
-            if let latest = all.last?.ts {
-                try db.saveSyncState(SyncState(source: "slack:\(conv.id)", cursor: latest,
-                                               lastRunAt: now, lastSuccessAt: now))
-            }
+            // A successful pass always clears any unreachable marker (lastError: nil), so a
+            // rejoined or re-resolved conversation heals with no manual step.
+            try db.saveSyncState(SyncState(source: stateKey, cursor: all.last?.ts ?? prior?.cursor,
+                                           lastRunAt: now, lastSuccessAt: now, lastError: nil))
+        }
+        if skipped > 0 {
+            logger?.debug("slack sync finished with unreachable conversations", [
+                "skipped": String(skipped), "synced": String(conversations.count - skipped),
+            ])
         }
         return total
+    }
+
+    // MARK: Unreachable-conversation bookkeeping
+
+    /// Marker prefix in `sync_state.last_error` for a conversation we could not read. Encoded into
+    /// the existing per-conversation row rather than a new table: `sync_state` already keys on
+    /// `slack:<conv>`, so this needs no migration, and it survives restarts — which an in-memory
+    /// set could not, since `IngestCoordinator` builds a fresh `SlackSync` on every pass.
+    static let unreachableMarker = "unreachable-since:"
+
+    /// How long an unreachable conversation stays skipped before one re-probe. A day turns 96
+    /// pointless requests per day into one, while still self-healing.
+    static let unreachableCooldown: Int64 = 86_400
+
+    /// Epoch seconds when the conversation was first found unreachable, or `nil` if it is not
+    /// marked. A row whose `last_error` is anything else (or nil) is treated as reachable.
+    static func unreachableSince(_ state: SyncState?) -> Int64? {
+        guard let raw = state?.lastError, raw.hasPrefix(unreachableMarker) else { return nil }
+        let rest = raw.dropFirst(unreachableMarker.count)
+        return Int64(rest.prefix { $0.isNumber })
     }
 }

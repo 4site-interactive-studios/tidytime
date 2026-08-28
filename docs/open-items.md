@@ -146,7 +146,15 @@ the same change ([CLAUDE.md](../CLAUDE.md) "When docs and reality disagree").
 
 ### B3 — Slack internal-app rate-limit exemption still in force
 
-- [ ] **Resolved** (date: ____ )
+- [x] **Resolved** (date: 2026-08-28 ) — **still exempt.** Live docs confirm internal
+  customer-built apps keep ~50+ req/min and 1,000 objects per call: "Internal customer-built
+  applications are not impacted by these changes." The poll-only design holds unchanged.
+  Two corrections landed in [reference/slack-api.md](reference/slack-api.md) while verifying:
+  the "Sept 2, 2025 → Mar 3, 2026" phase-in dates appear on **no** live Slack page and were
+  removed as unsourced, and the error-code list was replaced with the full
+  skip / retry / abort taxonomy (see item 3 in DECISIONS.md). Keep re-checking the changelog at
+  app-creation time — the gap between what search engines report and what Slack's own pages say is
+  itself the reason not to trust a cached summary.
 - **Question:** Are internal customer-built apps still exempt from the May 2025 `conversations.*`
   throttle (1 req/min, 15 objects)?
 - **Why it matters:** The whole poll-only design depends on internal apps keeping ~50+/min and

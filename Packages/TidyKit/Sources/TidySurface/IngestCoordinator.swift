@@ -156,7 +156,7 @@ public struct IngestCoordinator: Sendable {
         case .slack:
             let token = try secrets.get(SecretKey.slackUserToken) ?? ""
             let client = LiveSlackClient(http: http, token: token)
-            try await SlackSync(client: client, db: db, clock: clock).run()
+            try await SlackSync(client: client, db: db, clock: clock, logger: logger).run()
 
         case .googleCalendar:
             let oauth = GoogleOAuthConfig(

@@ -70,9 +70,39 @@ Slack's modern model puts **private channels in the `channels` array** of `conve
 - **Every response is `200 OK`** at the HTTP layer (except `429`); success is the JSON body's
   `"ok": true`. On failure, `{"ok":false,"error":"<code>"}` — always branch on `ok`, never on the
   HTTP status alone.
-- **Common error codes:** `ratelimited` (paired with HTTP 429 + `Retry-After`), `missing_scope`
-  (with `needed`/`provided`), `invalid_auth`, `token_revoked`, `not_in_channel`,
-  `channel_not_found`.
+- **Error codes fall into three classes that need opposite handling.** Verified against the live
+  `conversations.history` / `.replies` / `.list` / `.join` references, 2026-08-28. `TidyIngest`
+  encodes this as `SlackErrorClass`.
+
+  | Class | Codes | Handling |
+  |---|---|---|
+  | **Skip this conversation** | `channel_not_found`, `not_in_channel`, `is_archived`, `channel_is_limited_access`, `access_denied`, `no_permission`, `ekm_access_denied`, `method_not_supported_for_channel_type`, `thread_not_found` | Mark it unreachable, keep syncing the rest. |
+  | **Retry** | `ratelimited` (HTTP 429 + `Retry-After`), `internal_error`, `fatal_error`, `service_unavailable`, `request_timeout`, `team_added_to_org`, `org_login_required` | Back off the **whole run** — Slack meters per method per workspace per app, so a 429 on one channel predicts one on the next. Never skip. |
+  | **Abort the run** | `invalid_auth`, `not_authed`, `account_inactive`, `token_revoked`, `token_expired`, `missing_scope` (with `needed`/`provided`), `not_allowed_token_type`, `team_access_not_granted`, `two_factor_setup_required`, `enterprise_is_restricted`, `accesslimited`, `deprecated_endpoint`, `method_deprecated` | Token/scope/install is broken; every later call fails identically. |
+
+  An **unknown** code classifies as abort — fail closed. Silently skipping conversations on an
+  unrecognized error is how a sync goes quietly and permanently empty.
+
+- **`channel_not_found` alone is not enough**, and the reason is not obvious:
+  - `not_in_channel` is documented on `conversations.history` as "the token does not have access to
+    the proper channel" — membership for *this* channel, not authorization in general.
+  - Archiving a **public** channel drops its membership roster, so history then returns
+    `not_in_channel` — **not** `is_archived` — and `conversations.join` cannot recover, because
+    *that* returns `is_archived`. Permanently unreachable, via a code that never mentions archiving.
+  - `is_archived` is documented only on **mutating** methods, never on reads: Slack blocks writes
+    to archived channels and permits reads. Handle it anyway; the split is not guaranteed to hold.
+  - Which code a *left private* channel returns is **not documented anywhere**. Treat
+    `channel_not_found` and `not_in_channel` as interchangeable outcomes of the same real event.
+
+- **`conversation_not_found` does not exist.** Slack uses `channel_not_found` universally,
+  including for DMs and MPIMs. Do not write a branch for it.
+
+- **Conversation IDs are not stable.** A private channel shared across orgs can change its `G…`
+  prefix to `C…`, so a stored id can start returning `channel_not_found` for a channel that still
+  exists. Never permanently tombstone on that code — cool down and re-probe.
+
+- **`conversations.list` returns archived channels by default** (`exclude_archived` defaults to
+  `false`), which is exactly how a dead channel reaches the history loop.
 
 ```http
 GET /api/conversations.history?channel=C0123ABYZ&oldest=1721739000.000000&limit=200 HTTP/1.1
@@ -376,7 +406,14 @@ The rate-limit question is the reason internal-app status matters, and the answe
   non-Marketplace apps** — created after that date, and net-new installs of existing such apps —
   `conversations.history` **and** `conversations.replies` are throttled to **1 request/minute** and
   the `limit` param max/default is cut to **15 objects**, unless the app is Slack-Marketplace
-  approved. Existing installs phase in Sept 2, 2025 → Mar 3, 2026.
+  approved. ⚠️ **Correction (2026-08-28):** this doc previously claimed "existing installs phase in
+  Sept 2, 2025 → Mar 3, 2026". Neither date could be found on **any** live Slack page — the May 29
+  2025 changelog, the June 3 2025 clarification, the rate-limits guide, both method pages, the
+  changelog index, and the 2026 recaps were all checked. The live method-page banner says the
+  opposite: "Existing installations of applications published and distributed outside the Slack
+  Marketplace will not be subject to the new posted limits." Those dates are unsourced and have
+  been removed. This does not change our conclusion — the internal-app exemption below is stated
+  unconditionally and separately.
 - **Internal customer-built apps are explicitly exempt.** They are "not impacted"; for these apps
   `conversations.history`/`replies` keep the prior behavior — roughly **50+ requests/minute** and
   **up to 1,000 objects** per call (the June 3, 2025 clarification restates this).
