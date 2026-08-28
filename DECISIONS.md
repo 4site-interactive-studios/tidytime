@@ -1731,3 +1731,28 @@ blank list while the left pane reported "N min observed · X% attributed" — wh
 It now distinguishes *nothing captured* from *captured but nothing attributed* from *nothing left to
 suggest*, and points at Doctor or the questions list accordingly. Same principle as Doctor's ingest
 readiness rows: a zero is only trustworthy when it explains itself.
+
+### Phase 5 complete — measured on the live install (2026-08-28)
+
+| | Before this work | After |
+|---|---|---|
+| `pd_tasks.project_id` linked | **0** / 11,631 | 11,631 |
+| `pd_projects.company_id` linked | **0** / 965 | 965 |
+| `pd_time_entries.task_id` linked | **0** / 160 | 159 |
+| `entity_signals` | **0** | 1,379 |
+| Today's sessions attributed | 7 | **63 of 90** |
+| Sessions with a `task_id` | **0** / 3,900 | 43 |
+| Classifications at rung 1 | **0** | 20 |
+| `suggestions` | **0** (app's whole life) | **14** |
+| `pools` | 0 | 10 |
+| `resolution_questions` | 0 | 1 |
+| Suggestions carrying a deep link | 0 | 2 |
+
+Suggested-vs-raw inflation is **1.17×**, against the ~1.9× the pre-fix rounding would have produced
+on the same data — the `standalone_threshold` now being honoured is what keeps sub-threshold
+fragments pooling instead of each inflating to a full increment.
+
+The chain that had to be repaired in order, each link dead on its own:
+`include=` → linked mirror → vocabulary → readable signals → attribution → suggestions → decisions
+→ confirmed signals. Six of the twenty-two orphaned jobs are now wired; the rest are Phase 6 and
+deliberately still dark.
