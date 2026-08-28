@@ -6,6 +6,13 @@ SCHEME  := TidyTime
 CONFIG  ?= Debug
 DERIVED := .build/dd
 
+# Build provenance stamped into App/Info.plist (read back by TidyCore's BuildInfo) so the running
+# app, its logs, and the diagnostic bundle can all say WHICH COMMIT they are. `-dirty` marks a
+# build made from an unclean tree, because "8dda588" with uncommitted edits is a lie.
+GIT_SHA   := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+BUILT_AT  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+STAMP     := TT_GIT_SHA=$(GIT_SHA) TT_BUILD_TIMESTAMP=$(BUILT_AT)
+
 ## bootstrap: install XcodeGen (if needed) and generate the Xcode project
 bootstrap:
 	@which xcodegen >/dev/null 2>&1 || brew install xcodegen
@@ -19,7 +26,7 @@ generate:
 ## build: build the app bundle
 build: generate
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
-		-derivedDataPath $(DERIVED) build
+		-derivedDataPath $(DERIVED) $(STAMP) build
 
 ## run: build then launch the app
 run: build

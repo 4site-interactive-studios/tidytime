@@ -16,6 +16,16 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- Build provenance (read by TidyCore's BuildInfo). Fed by the TT_GIT_SHA /
+         TT_BUILD_TIMESTAMP build settings that the Makefile and scripts/make-dmg.sh pass to
+         xcodebuild; project.yml defaults both to "unknown" so a bare Xcode build is honest rather
+         than wrong. "0.1.0" alone cannot tell a current install from a stale copy — which is
+         exactly how a stale build in the Trash ate a debugging session on 2026-08-28. -->
+    <key>TTGitSHA</key>
+    <string>$(TT_GIT_SHA)</string>
+    <key>TTBuildTimestamp</key>
+    <string>$(TT_BUILD_TIMESTAMP)</string>
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 

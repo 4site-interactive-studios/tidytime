@@ -72,6 +72,15 @@ let assembler = DiagnosticsAssembler(
 
 var input = assembler.assemble(logLines: logLines)
 input.extras["read_by"] = "tidytime-doctor CLI (database opened read-only)"
+// This CLI is its own binary with its own provenance, and reporting THAT under "Environment" would
+// answer the wrong question — the reader wants to know which build of the APP is running. Say so
+// plainly, and let `last_run_build` / `last_run_bundle_path` (read from app_metadata) carry the
+// real answer.
+input.build = BuildInfo(
+    version: TidyTime.version,
+    gitSHA: "n/a — see last_run_build under Extras for the app's commit",
+    builtAt: "n/a — this is the tidytime-doctor CLI, not TidyTime.app",
+    bundlePath: "n/a — see last_run_bundle_path under Extras for the app's location")
 if let attrs = try? FileManager.default.attributesOfItem(atPath: paths.diagnosticsURL.path),
    let modified = attrs[.modificationDate] as? Date {
     input.extras["app_snapshot_age"] = String(format: "%.0fs old", Date().timeIntervalSince(modified))

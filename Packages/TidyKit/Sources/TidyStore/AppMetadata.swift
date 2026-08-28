@@ -20,6 +20,23 @@ public struct AppMetadata: Codable, FetchableRecord, PersistableRecord, Sendable
 public enum MetadataKey {
     public static let installId = "install_id"
     public static let schemaVersion = "schema_version"
+    /// Provenance of the build that most recently opened this database, as
+    /// `BuildInfo.summary` — `0.1.0 (8dda588, built 2026-07-27T12:53:16Z)`.
+    public static let lastRunBuild = "last_run_build"
+    /// Filesystem path of the bundle that most recently opened this database. Deliberately
+    /// separate from ``lastRunBuild``: two identical builds in different locations are the case
+    /// that fooled a live debugging session, and only the path tells them apart.
+    public static let lastRunBundlePath = "last_run_bundle_path"
+}
+
+extension AppDatabase {
+    /// Record which build just opened the database. Written on every launch so the *database*
+    /// — readable by `tidytime-doctor` with the app closed — always knows what last ran against
+    /// it. Best-effort: provenance bookkeeping must never block startup.
+    public func recordRunningBuild(_ build: BuildInfo, clock: TidyClock = SystemClock()) {
+        try? setMetadata(MetadataKey.lastRunBuild, build.summary, clock: clock)
+        try? setMetadata(MetadataKey.lastRunBundlePath, build.bundlePath, clock: clock)
+    }
 }
 
 extension AppDatabase {

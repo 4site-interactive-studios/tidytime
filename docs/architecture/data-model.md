@@ -37,6 +37,23 @@ to a shipped one — see [Migrations](#migrations).
 | `entity_signals`, `suggestions`, `decisions`, `pools`, `resolution_questions`, `daily_rollups` | 5 |
 | `ai_calls`, `nudges` | 6 |
 
+### `app_metadata` (Phase 0) — well-known keys
+
+A key/value table, so new bookkeeping needs **no migration**. The keys `TidyStore` writes:
+
+| Key | Written by | Meaning |
+|---|---|---|
+| `install_id` | first launch | Stable per-install UUID. |
+| `schema_version` | migrator | Applied schema version. |
+| `last_run_build` | every launch | `BuildInfo.summary` of the build that last opened this database — `0.1.0 (8dda588, built 2026-07-27T12:53:16Z)`. |
+| `last_run_bundle_path` | every launch | Filesystem path of that bundle. |
+
+The last two exist because a version string alone cannot tell a current install from a stale copy
+of the same version. On 2026-08-28 a stale build kept relaunching from `~/.Trash` via a leftover
+login-item registration while `/Applications` held the current one, and every diagnostic said only
+`0.1.0`. Recording them **in the database** means `tidytime-doctor` can answer "which build last
+ran?" with the app closed, from a different binary.
+
 ---
 
 ## Capture tables (Phase 1)

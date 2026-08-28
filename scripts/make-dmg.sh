@@ -73,13 +73,20 @@ echo "==> Regenerating the Xcode project"
 command -v xcodegen >/dev/null 2>&1 || { echo "error: xcodegen not installed (run: make bootstrap)" >&2; exit 1; }
 xcodegen generate
 
-echo "==> Building $APP_NAME ($CONFIG)"
+# Provenance stamped into Info.plist and read back by TidyCore's BuildInfo, so the shipped dmg can
+# always answer "which commit is this?" — the question that had no answer on 2026-08-28, when a
+# stale build kept relaunching from the Trash and every diagnostic just said "0.1.0".
+GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+git diff --quiet HEAD 2>/dev/null || GIT_SHA="$GIT_SHA-dirty"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "==> Building $APP_NAME ($CONFIG) from $GIT_SHA at $BUILT_AT"
 if [[ "$SIGNED" == "1" ]]; then
   xcodebuild -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" -configuration "$CONFIG" \
-    -derivedDataPath "$DERIVED" build
+    -derivedDataPath "$DERIVED" TT_GIT_SHA="$GIT_SHA" TT_BUILD_TIMESTAMP="$BUILT_AT" build
 else
   xcodebuild -project "$APP_NAME.xcodeproj" -scheme "$APP_NAME" -configuration "$CONFIG" \
-    -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO build
+    -derivedDataPath "$DERIVED" TT_GIT_SHA="$GIT_SHA" TT_BUILD_TIMESTAMP="$BUILT_AT" \
+    CODE_SIGNING_ALLOWED=NO build
 fi
 
 APP="$DERIVED/Build/Products/$CONFIG/$APP_NAME.app"

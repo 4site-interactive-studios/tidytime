@@ -26,6 +26,11 @@ settings:
     SWIFT_VERSION: "6.0"
     ENABLE_HARDENED_RUNTIME: YES
     PRODUCT_BUNDLE_IDENTIFIER: com.4site.TidyTime
+    # Build provenance, substituted into App/Info.plist and read back by TidyCore's BuildInfo.
+    # These defaults are what a bare Xcode build gets; `make build` and `make dmg` override them
+    # on the xcodebuild command line with the real SHA and timestamp.
+    TT_GIT_SHA: unknown
+    TT_BUILD_TIMESTAMP: unknown
 
 packages:
   TidyKit:

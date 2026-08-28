@@ -13,12 +13,15 @@ public struct DiagnosticsAssembler: Sendable {
     private let permissions: PermissionStatusProviding
     private let clock: TidyClock
 
+    private let build: BuildInfo
+
     public init(
         db: AppDatabase, config: Config, secrets: SecretStore, logURL: URL,
-        permissions: PermissionStatusProviding = StaticPermissionProvider(), clock: TidyClock = SystemClock()
+        permissions: PermissionStatusProviding = StaticPermissionProvider(), clock: TidyClock = SystemClock(),
+        build: BuildInfo = .current()
     ) {
         self.db = db; self.config = config; self.secrets = secrets; self.logURL = logURL
-        self.permissions = permissions; self.clock = clock
+        self.permissions = permissions; self.clock = clock; self.build = build
     }
 
     public func assemble(logLines: Int = 200) -> DiagnosticsInput {
@@ -27,18 +30,31 @@ public struct DiagnosticsAssembler: Sendable {
             osVersion: HostInfo.osVersion,
             deviceModel: HostInfo.deviceModel,
             generatedAt: clock.now,
+            build: build,
             configSummary: Self.summarize(config),
             presentSecretKeys: (try? secrets.allKeys()) ?? [],
             permissions: permissions.statuses(),
             databaseSummary: (try? db.tableRowCounts()) ?? [:],
             recentLogLines: LogReader.tail(logURL, lines: logLines),
-            extras: [
-                "build": Self.buildConfiguration,
-                "applied_migrations": (try? db.appliedMigrations().joined(separator: ",")) ?? "",
-                "db_path": db.path ?? "in-memory",
-                "log_path": logURL.path,
-            ]
+            extras: Self.extras(db: db, build: build, logURL: logURL)
         )
+    }
+
+    /// The `Extras` block. `last_run_*` are read back out of `app_metadata` rather than taken from
+    /// this process, so the `tidytime-doctor` CLI — a different binary, with its own provenance —
+    /// still reports which build last ran the **app**. Without that split the CLI would cheerfully
+    /// describe itself and answer the wrong question.
+    public static func extras(db: AppDatabase, build: BuildInfo, logURL: URL) -> [String: String] {
+        var out: [String: String] = [
+            "build": Self.buildConfiguration,
+            "applied_migrations": (try? db.appliedMigrations().joined(separator: ",")) ?? "",
+            "db_path": db.path ?? "in-memory",
+            "log_path": logURL.path,
+        ]
+        let unknown = "(never recorded — no build since provenance landed has opened this database)"
+        out["last_run_build"] = ((try? db.metadata(MetadataKey.lastRunBuild)) ?? nil) ?? unknown
+        out["last_run_bundle_path"] = ((try? db.metadata(MetadataKey.lastRunBundlePath)) ?? nil) ?? unknown
+        return out
     }
 
     /// Assemble → render → copy. `knownSecretValues` are extra values to scrub (belt-and-braces).

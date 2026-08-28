@@ -11,6 +11,10 @@ public struct DiagnosticsInput: Sendable, Equatable {
     public var osVersion: String
     public var deviceModel: String
     public var generatedAt: Date
+    /// Which commit this binary came from, when it was built, and where it lives. A bundle that
+    /// only says "0.1.0" cannot tell a current install from a stale copy still being launched by a
+    /// leftover login item — the exact confusion that cost a live debugging session on 2026-08-28.
+    public var build: BuildInfo
     /// Non-secret config summary (e.g. org id, timezone, thresholds).
     public var configSummary: [String: String]
     /// Names of credentials present in the SecretStore — never values.
@@ -26,12 +30,13 @@ public struct DiagnosticsInput: Sendable, Equatable {
 
     public init(
         appVersion: String, osVersion: String, deviceModel: String, generatedAt: Date,
-        configSummary: [String: String] = [:], presentSecretKeys: [String] = [],
+        build: BuildInfo = BuildInfo(), configSummary: [String: String] = [:],
+        presentSecretKeys: [String] = [],
         permissions: [String: String] = [:], databaseSummary: [String: Int] = [:],
         recentLogLines: [String] = [], extras: [String: String] = [:]
     ) {
         self.appVersion = appVersion; self.osVersion = osVersion; self.deviceModel = deviceModel
-        self.generatedAt = generatedAt; self.configSummary = configSummary
+        self.generatedAt = generatedAt; self.build = build; self.configSummary = configSummary
         self.presentSecretKeys = presentSecretKeys; self.permissions = permissions
         self.databaseSummary = databaseSummary; self.recentLogLines = recentLogLines; self.extras = extras
     }
@@ -48,6 +53,15 @@ public enum DiagnosticsBundle {
 
         out += "## Environment\n"
         out += "- App version: \(input.appVersion)\n"
+        // Provenance sits directly under the version, because the version alone is what misled a
+        // reader before: two very different builds both call themselves 0.1.0.
+        out += "- Git SHA: \(input.build.gitSHA)\n"
+        out += "- Built at: \(input.build.builtAt)\n"
+        out += "- Bundle path: \(input.build.bundlePath)\n"
+        if !input.build.isProvenanceKnown {
+            out += "  - ⚠️ This build carries no git SHA. It was not produced by `make build` /"
+            out += " `make dmg`, so which commit it contains cannot be established from the binary.\n"
+        }
         out += "- macOS: \(input.osVersion)\n"
         out += "- Device: \(input.deviceModel)\n\n"
 

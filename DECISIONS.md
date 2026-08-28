@@ -790,3 +790,62 @@ the instrument was trusted. Fixes:
   and shipped signed dmgs since (`9b1915f` onward).
 - The "app shell is a Phase-0 placeholder" claims in early entries are superseded by `b5db65a`
   (full surface wired) and the first real run (2026-07-25).
+
+---
+
+## Live-install defect sweep (2026-08-28)
+
+A real install was debugged against `build/v1` @ `8dda588`. Entries below are in the order the work
+was done. The first one is the reason the rest were hard to diagnose.
+
+### 0. Build provenance — and what the "stale binary" actually was
+
+**The reported premise was right; the stated cause was wrong, and the difference matters.**
+
+The running app logged `ingest skipped … reason: "not implemented — OAuth sign-in flow not built"`
+for `google_calendar` — a string that exists nowhere at HEAD (`IngestCoordinator.readiness`
+returns `.needsSignIn` / `.missingConfig` for that source since `1e3ffba`). The conclusion drawn
+was "the dmg predates `1e3ffba`, rebuild and reinstall". Rebuilding would have changed nothing.
+
+What was actually true, established by probing every TidyTime binary on the machine for that string:
+
+| Binary | Built | Has the stale string |
+|---|---|---|
+| `/Applications/TidyTime.app` | 2026-07-27 08:54 | **no** — it is HEAD |
+| `dist/TidyTime.dmg` | 2026-07-27 08:54 | **no** — it is HEAD |
+| `.build/dd-signed/…` | 2026-07-26 00:13 | yes |
+| **`~/.Trash/TidyTime.app`** | **signed 2026-07-27 00:13:02** | **yes** |
+
+`sfltool dumpbtm` showed **two** enabled login items for TidyTime: `2.com.4site.TidyTime` →
+`/Applications/TidyTime.app`, and a leftover `2.TidyTime` → `file:///Users/4Site/.Trash/TidyTime.app/`.
+The Trash copy is what had been running since `2026-08-11T04:23:14Z` (the last `environment ready`
+line). The install was never stale — **a deleted copy was still being launched at login.**
+
+Its commit was pinned by string probe, not by timestamp: the Trash binary contains
+`DELETE FROM sessions WHERE kind = 'slack' AND started_at < ?`, introduced by `43ca776`. So the
+running build **included** `43ca776` (bounded first syncs, Slack backoff, Fathom 90-day fallback)
+and only predated `1e3ffba`. That single fact rules out "the rebuild will fix it" for the Fathom
+and Slack items below, which is why it was worth pinning precisely rather than inferring from mtime.
+
+**Decision: provenance is recorded in three places, because each answers a question the others can't.**
+
+1. **`Info.plist` (`TTGitSHA` / `TTBuildTimestamp`)**, substituted from the `TT_GIT_SHA` /
+   `TT_BUILD_TIMESTAMP` build settings that `Makefile` and `scripts/make-dmg.sh` pass to
+   `xcodebuild`; `project.yml` defaults both to `unknown`. Read back by `BuildInfo.current()`.
+2. **`app_metadata.last_run_build` + `last_run_bundle_path`**, written on every launch. This is the
+   one that would have ended today's confusion in a single query: it names the *path* of the bundle
+   that last opened the database. `tidytime-doctor` is a different binary with its own provenance,
+   so it reads these from the DB rather than reporting itself — `DiagnosticsAssembler.extras`.
+3. **The `environment ready` log line**, which now carries `git_sha`, `built_at`, `bundle_path`.
+
+**Rejected:**
+- *A generated Swift source file with the SHA.* Committing a file that changes on every build is
+  churn; not committing it breaks plain `swift test`.
+- *Reporting the CLI's own build in the Environment section.* It answers the wrong question. The
+  CLI now says `n/a — see last_run_build under Extras` instead, and points at the real answer.
+- *Failing the build without a SHA.* `swift test`, `swift run`, and bare Xcode builds are all
+  legitimate. They report `unknown`, and the bundle prints an explicit ⚠️ line saying provenance
+  could not be established — silence would read as "fine".
+
+A `-dirty` suffix marks a build made from an unclean tree: `8dda588` with uncommitted edits is a
+lie, and this whole entry exists because a build misrepresented itself.

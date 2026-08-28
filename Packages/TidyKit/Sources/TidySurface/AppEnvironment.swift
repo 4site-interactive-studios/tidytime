@@ -110,7 +110,19 @@ public final class AppEnvironment: ObservableObject {
         let cachedSecrets: [String] = SecretKey.all.compactMap { (try? store.get($0)) ?? nil }
         self.logger = TidyLogger(category: "app", sink: sink, secrets: { cachedSecrets })
         _ = try? db.installId()
-        logger.info("environment ready", ["db": resolved.databaseURL.lastPathComponent])
+        // Stamp provenance into the database and the very first log line of every launch. Today's
+        // confusion — a stale copy in the Trash still being launched by a leftover login item,
+        // while /Applications held the current build — was invisible precisely because neither the
+        // log nor the database said which binary was talking.
+        let build = BuildInfo.current()
+        db.recordRunningBuild(build)
+        logger.info("environment ready", [
+            "db": resolved.databaseURL.lastPathComponent,
+            "version": build.version,
+            "git_sha": build.gitSHA,
+            "built_at": build.builtAt,
+            "bundle_path": build.bundlePath,
+        ])
     }
 
     /// Test/preview init from an already-open database.
