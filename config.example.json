@@ -10,7 +10,7 @@
   "organization": {
     "productive_organization_id": "REPLACE_WITH_ORG_ID",
     "productive_org_slug": "REPLACE_WITH_ORG_SLUG",
-    "productive_self_email": "you@yourcompany.com",
+    "productive_self_email": "REPLACE_WITH_YOUR_PRODUCTIVE_LOGIN_EMAIL",
     "productive_person_id": "resolved_at_setup",
     "timezone": "America/New_York"
   },

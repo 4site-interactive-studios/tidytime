@@ -1244,7 +1244,7 @@ throw aborted the function and **neither** ran — `pd_tasks` and `pd_time_entri
 companies, projects and people synced normally. It also silently disabled gap analysis, which needs
 `pd_time_entries` to know what was already logged.
 
-**Why 340 tests said nothing.** `docs/reference/productive-api.md` showed `"task_number": 412`, an
+**Why the 332-test suite said nothing.** `docs/reference/productive-api.md` showed `"task_number": 412`, an
 integer. The model was written from the doc and the fixtures were written from the doc. All three
 agreed with each other and disagreed with Productive. A fixture that encodes our assumptions cannot
 falsify them.
@@ -1352,4 +1352,61 @@ people table contains **two** matching rows (`bryan@4sitestudios.com` → 32510 
 `bryan.casler@gmail.com` → 32842), so guessing by name would have picked the wrong account half the
 time; the email disambiguates.
 
-`productive_person_id` still wins when set, so an existing config is unaffected.
+An existing config is unaffected: without the new key `selfEmail` is nil, `selfId` is never
+assigned, and both call sites collapse to `assigneeId` exactly as before. Note the two
+precedences differ **on purpose** — tasks use `assigneeId ?? selfId` (fetch scope, explicit id
+wins) while time entries use `selfId ?? assigneeId`, which must match `db.selfPerson()` because
+`SuggestionEngine` queries time entries by that id. I unified them and reverted it; see item 2b.
+
+### 2b. Pre-push review — one real regression I introduced, and one "fix" I had to revert
+
+Before pushing to `origin/main` I ran an adversarial review of the four unpushed commits: four
+reviewers by dimension, then a refutation pass over every blocker/should-fix. 17 raw findings, 1
+confirmed (a nit), most refuted on scope or reachability. Two outcomes were worth the exercise.
+
+**A real regression, caught and fixed: `lenientString` on presence-flag timestamps.**
+`closed` is derived as `closedAt != nil` and `archived` as `archivedAt != nil`. `lenientString`
+coerces JSON `false` into `"false"` and `0` into `"0"` — both non-nil. Verified with a standalone
+decoder probe rather than by argument:
+
+```
+{"closed_at":null}   -> nil              closed=false
+{"closed_at":false}  -> Optional("false") closed=true   ← every task closed
+{"closed_at":0}      -> Optional("0")     closed=true
+```
+
+`main` did not have this: strict `decodeIfPresent(String.self)` *throws* on `false`, which aborts
+loudly. My change turned a loud abort into silent data corruption — strictly worse. Fixed with
+`lenientTimestamp`, which accepts a real non-empty string or nothing and still never throws.
+
+The general lesson, now in the code comment: **leniency is right for a value that is genuinely
+number-or-string, and actively wrong for a value whose *presence* is the signal.** I applied the
+pattern uniformly instead of asking what each field meant. Pinned by three tests.
+
+**A "fix" I made and then reverted: unifying the assignee precedence.** Tasks use
+`assigneeId ?? selfId`; time entries use `selfId ?? assigneeId`. That looked like an obvious
+inconsistency and I changed both to the former. The refutation showed why that is a bug:
+`db.selfPerson()` reads `pd_people.is_self`, written **only** by `resolveSelf(email:)` — i.e. from
+`selfId` — and `SuggestionEngine` then queries `timeEntries(personId: selfPersonId)`. With the two
+ids differing, my version would fetch one person's time entries while the rest of the app asked for
+another's, yielding silently zero logged time. The asymmetry is deliberate: tasks is a fetch-*scope*
+question where an explicit id wins; time entries must agree with downstream identity. Reverted, and
+the reasoning is now a comment so the next person doesn't "fix" it either.
+
+Also corrected: the DECISIONS/commit claim "`productive_person_id` still wins when set" was
+over-broad — true for tasks, false for time entries. The clause that mattered ("an existing config
+is unaffected") was correct, and for a reason worth keeping: without the new key `selfEmail` is nil,
+so both expressions collapse to `assigneeId` exactly as before.
+
+**Kept despite being refuted as out-of-scope**, because they are small and real: logging when a
+configured `productive_self_email` matches nobody (the refutation itself conceded this is a genuine
+diagnostics gap — a set-but-unmatched email is currently indistinguishable from an unset one), and
+logging when a fetch hits the 100-page cap and silently truncates. Both are the same "never fail
+silently" principle the rest of this sweep is built on.
+
+**The confirmed nit:** the outage narrative said "279 passing tests" in two places and "340" in a
+third. The suite that actually missed the `task_number` mismatch was **332** — 347 today minus the
+8 tests added in `4b3be64` and the 7 in `ac83156`. 340 was self-defeating, since 8 of those were
+written in that very commit *to catch the bug*. Corrected to 332 everywhere. Also caught: `9ef01af`,
+whose one job was replacing carried-forward numbers, walked past `site/index.html` — still 279,
+now 347.

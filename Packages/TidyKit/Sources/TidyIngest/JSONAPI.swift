@@ -111,7 +111,7 @@ public struct JSONAPIRelationship: Decodable, Sendable {
 /// Productive's own API reference shows `"task_number": 412` and `"status": 1` — integers. The live
 /// API returns `task_number` as a **string**. Our model, our fixtures, and the reference doc were
 /// all written from that doc, so all three agreed with each other and disagreed with reality, and
-/// 279 passing tests said nothing. The first live sync threw
+/// The 332-test suite said nothing. The first live sync threw
 /// `typeMismatch … Expected to decode Int but found a string instead` on `data[0].attributes`,
 /// which aborted `ProductiveSync.run()` before it ever reached time entries — leaving `pd_tasks`
 /// *and* `pd_time_entries` at zero while companies, projects and people synced fine.
@@ -150,6 +150,34 @@ extension KeyedDecodingContainer {
         }
         if let b = try? decodeIfPresent(Bool.self, forKey: key) { return String(b) }
         return nil
+    }
+
+    /// A timestamp-or-null field that is consumed as a **presence flag**.
+    ///
+    /// Deliberately NOT `lenientString`. `closed_at` / `archived_at` are read as
+    /// `attributes.closedAt != nil`, so any non-nil value means "closed". `lenientString` coerces
+    /// JSON `false` into `"false"` and `0` into `"0"` — both non-nil — which would mark **every
+    /// task closed and every company archived** the moment Productive returned `false` instead of
+    /// `null`. Verified: a JSON `false` through the lenient path yields `Optional("false")`.
+    ///
+    /// Leniency is right for a value that is genuinely a number-or-string. It is actively wrong for
+    /// a value whose *presence* is the signal. Accepts a real string or nothing, and still never
+    /// throws. An empty string is treated as absent — a blank timestamp is not a date.
+    func lenientTimestamp(_ key: Key) -> String? {
+        guard let s = (try? decodeIfPresent(String.self, forKey: key)) ?? nil else { return nil }
+        return s.trimmingCharacters(in: .whitespaces).isEmpty ? nil : s
+    }
+
+    /// A required string. Throws when absent or unusable so the element-level skip drops that one
+    /// row — used for fields a record is meaningless without.
+    func lenientRequiredString(_ key: Key) throws -> String {
+        guard let s = (try? decodeIfPresent(String.self, forKey: key)) ?? nil,
+              !s.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key, in: self,
+                debugDescription: "expected a non-empty string for \(key.stringValue)")
+        }
+        return s
     }
 
     /// A required integer that the vendor may send either way. Throws only when the value is

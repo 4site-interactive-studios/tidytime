@@ -103,6 +103,47 @@ final class ProductiveLenientDecodeTests: XCTestCase {
         XCTAssertEqual(doc.skipped, 1)
     }
 
+    // MARK: Presence flags must NOT be coerced
+
+    /// The regression this nearly shipped with. `closed` is derived as `closedAt != nil`, and
+    /// `lenientString` turns a JSON `false` into the non-nil string `"false"` — which would mark
+    /// EVERY task closed. Presence flags use `lenientTimestamp`, which accepts a real string or
+    /// nothing. Verified against the real decoder, not reasoned about.
+    func testFalseOrZeroDoesNotCountAsAClosedTimestamp() throws {
+        for raw in ["false", "0", "null"] {
+            let json = """
+            { "data": [{"id":"1","type":"tasks","attributes":{"title":"open task","closed_at":\(raw)}}]}
+            """
+            let doc = try JSONDecoder().decode(JSONAPIDocument<TaskAttrs>.self, from: Data(json.utf8))
+            XCTAssertNil(doc.data[0].attributes.closedAt,
+                         "closed_at: \(raw) must not read as a closed task")
+        }
+        // A real timestamp still registers.
+        let closed = """
+        { "data": [{"id":"1","type":"tasks","attributes":{"title":"t","closed_at":"2026-07-25T10:00:00Z"}}]}
+        """
+        let doc = try JSONDecoder().decode(JSONAPIDocument<TaskAttrs>.self, from: Data(closed.utf8))
+        XCTAssertEqual(doc.data[0].attributes.closedAt, "2026-07-25T10:00:00Z")
+    }
+
+    /// Same hazard on the company/project side — `archived` is `archivedAt != nil`.
+    func testFalseDoesNotCountAsArchived() throws {
+        let json = """
+        { "data": [{"id":"c1","type":"companies","attributes":{"name":"Acme","archived_at":false}}]}
+        """
+        let doc = try JSONDecoder().decode(JSONAPIDocument<CompanyAttrs>.self, from: Data(json.utf8))
+        XCTAssertNil(doc.data[0].attributes.archivedAt, "a live company must not read as archived")
+    }
+
+    /// An empty-string timestamp is absence, not a date.
+    func testBlankTimestampIsAbsence() throws {
+        let json = """
+        { "data": [{"id":"1","type":"tasks","attributes":{"title":"t","closed_at":"   "}}]}
+        """
+        let doc = try JSONDecoder().decode(JSONAPIDocument<TaskAttrs>.self, from: Data(json.utf8))
+        XCTAssertNil(doc.data[0].attributes.closedAt)
+    }
+
     // MARK: The other fields of the same risk class
 
     /// `company_type_id`, `project_type_id` and `number` have never been checked against live data.

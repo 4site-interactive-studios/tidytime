@@ -201,12 +201,21 @@ X-Organization-Id: 42
 > entries, so **both** `pd_tasks` and `pd_time_entries` sat at zero while companies, projects and
 > people synced normally.
 >
-> The doc above previously showed `"task_number": 412`. The model and the test fixtures were both
-> written from it, so all three agreed with each other and disagreed with the API — and 279 passing
-> tests reported nothing. `TidyIngest` now decodes every numeric-ish attribute through
-> `KeyedDecodingContainer.lenientInt` / `.lenientString`, which accept either representation and
-> degrade a bad value to `nil` rather than throwing. `JSONAPIDocument` additionally decodes `data`
-> element-by-element, so one malformed resource costs one row instead of the whole source.
+> The **tasks** sample payload below previously showed `"task_number": 412`. The model and the test
+> fixtures were both written from it, so all three agreed with each other and disagreed with the API
+> — and the 332-test suite reported nothing. The **Productive client** now decodes every numeric-ish
+> attribute through `KeyedDecodingContainer.lenientInt` / `.lenientString`, which accept either
+> representation and degrade a bad value to `nil` rather than throwing. `JSONAPIDocument`
+> additionally decodes `data` element-by-element, so one malformed resource costs one row instead of
+> the whole source.
+>
+> Presence-flag timestamps (`closed_at`, `archived_at`, `due_date`) deliberately use
+> `lenientTimestamp`, **not** `lenientString`: those are read as `!= nil`, so coercing a JSON
+> `false` into `"false"` would mark every task closed and every company archived.
+>
+> **Scope note:** the helpers live in `JSONAPI.swift` and are available to all of `TidyIngest`, but
+> only the Productive client uses them today. `FathomClient`, `GoogleCalendarClient` and
+> `SlackClient` still decode strictly and carry the same class of risk.
 >
 > `company_type_id`, `project_type_id` and `number` are the same risk class and have **not** been
 > confirmed against live data; they are decoded leniently on that basis.

@@ -22,7 +22,7 @@ struct CompanyAttrs: Decodable, Sendable {
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
         companyTypeId = c.lenientInt(.companyTypeId)
         domain = c.lenientString(.domain)
-        archivedAt = c.lenientString(.archivedAt)
+        archivedAt = c.lenientTimestamp(.archivedAt)
     }
 }
 struct ProjectAttrs: Decodable, Sendable {
@@ -40,7 +40,7 @@ struct ProjectAttrs: Decodable, Sendable {
         // `number` is modelled as a string but is a project number — the same string/int ambiguity
         // that bit `task_number`.
         number = c.lenientString(.number)
-        archivedAt = c.lenientString(.archivedAt)
+        archivedAt = c.lenientTimestamp(.archivedAt)
     }
 }
 struct TaskAttrs: Decodable, Sendable {
@@ -63,8 +63,10 @@ struct TaskAttrs: Decodable, Sendable {
         // The second one, hiding behind the first — Swift decodes in property order, so the throw
         // on `task_number` meant `status` was never reached. The doc's own fixture shows `1`.
         status = c.lenientString(.status)
-        closedAt = c.lenientString(.closedAt)
-        dueDate = c.lenientString(.dueDate)
+        // Presence flags, not free text — see lenientTimestamp. `closed` is derived as
+        // `closedAt != nil`, so coercing a JSON false into "false" would close every task.
+        closedAt = c.lenientTimestamp(.closedAt)
+        dueDate = c.lenientTimestamp(.dueDate)
     }
 }
 struct TimeEntryAttrs: Decodable, Sendable {
@@ -75,7 +77,10 @@ struct TimeEntryAttrs: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case date, time, billableTime = "billable_time", note }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
-        date = (try? c.decode(String.self, forKey: .date)) ?? ""
+        // `date` is as load-bearing as `time`: an entry with no date cannot be placed on a day,
+        // and silently defaulting it to "" would write a row that no day query can ever find.
+        // Required, so the element-level skip drops just that entry and counts it.
+        date = try c.lenientRequiredString(.date)
         // `time` is the load-bearing value (minutes logged). Lenient about representation, but
         // still REQUIRED: a time entry with no usable duration is not a row worth keeping, and the
         // element-level skip in JSONAPIDocument drops just that entry rather than the whole sync.
@@ -257,7 +262,16 @@ public struct LiveProductiveClient: ProductiveClient {
             }
             if received == 0 { break }
             page += 1
-            if page > 100 { break }  // safety valve
+            if page > 100 {
+                // The valve is a runaway guard, not a policy. Hitting it silently returns a
+                // truncated array the caller cannot tell from a complete walk — and an unfiltered
+                // task fetch reaches it routinely (20,000 rows observed live). Say so.
+                logger?.error("productive fetch hit its page cap — results are TRUNCATED", [
+                    "path": path, "pages": String(page - 1), "rows": String(out.count),
+                    "fix": "narrow the query (set organization.productive_self_email) — this is not a complete sync",
+                ])
+                break
+            }
         }
         if skipped > 0 {
             logger?.error("productive resources skipped — they failed to decode", [

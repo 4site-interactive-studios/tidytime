@@ -147,7 +147,8 @@ public struct IngestCoordinator: Sendable {
             // "fetch every task in the org" and "never fetch time entries at all".
             let selfEmail = config.organization.productiveSelfEmail
             try await ProductiveSync(client: client, db: db, clock: clock,
-                                     selfEmail: selfEmail.isEmpty ? nil : selfEmail)
+                                     selfEmail: selfEmail.isEmpty ? nil : selfEmail,
+                                     logger: logger)
                 .run(assigneeId: personId.isEmpty || personId == "resolved_at_setup" ? nil : personId,
                      after: after, before: before)
 

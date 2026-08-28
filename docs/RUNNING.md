@@ -125,7 +125,11 @@ Note the location: the runtime file lives in **Application Support**, not the re
 `config.json` in the repo root is read by nothing (earlier revisions of this doc said to copy one
 there — it never took effect).
 
-Set `organization.productive_organization_id` + `productive_org_slug` and `google.client_id`.
+Set `organization.productive_organization_id`, `productive_org_slug`,
+`productive_self_email` (your Productive login email) and `google.client_id`.
+**`productive_self_email` is not optional in practice:** without it TidyTime cannot tell which
+tasks are yours, so it fetches the whole organization until it hits a page cap and skips your
+time entries entirely — which looks like a working sync with an empty table.
 Every key you leave out uses the compiled default, so the starter file is deliberately short;
 [config.example.json](../config.example.json) is the full reference for what else can be tuned
 (`capture.*`, `ai.*`, and the entries listed in its `_build_time_checks`). Copy a block out of it

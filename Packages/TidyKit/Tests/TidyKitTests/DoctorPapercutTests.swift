@@ -51,11 +51,11 @@ final class DoctorPapercutTests: XCTestCase {
 
     /// "Sync now" exists only in Doctor. The natural place to look is the menu bar popover, which
     /// has no such control — so naming the button without naming its location sends people hunting.
-    func testTipsThatNameSyncNowAlsoSayWhereItIs() {
+    func testTipsThatNameSyncNowAlsoSayWhereItIs() throws {
         let tip = DoctorTips.tip(for: .slack, readiness: .ready,
                                  lastError: "transport error: slack error: channel_not_found",
                                  configPath: "/tmp/config.json")
-        let text = try! XCTUnwrap(tip).steps.joined(separator: " ")
+        let text = try XCTUnwrap(tip).steps.joined(separator: " ")
         XCTAssertTrue(text.contains("Sync now"))
         XCTAssertTrue(text.contains("Doctor") || text.contains("Sources list"),
                       "naming the button without its location is the papercut")
@@ -64,11 +64,11 @@ final class DoctorPapercutTests: XCTestCase {
     }
 
     /// The full error still reaches the user, even though the row shows only a summary.
-    func testTheTipStillCarriesTheFullError() {
+    func testTheTipStillCarriesTheFullError() throws {
         let long = "transport error: " + String(repeating: "detail ", count: 40)
         let tip = DoctorTips.tip(for: .fathom, readiness: .ready, lastError: long,
                                  configPath: "/tmp/config.json")
-        let text = try! XCTUnwrap(tip).steps.joined(separator: " ")
+        let text = try XCTUnwrap(tip).steps.joined(separator: " ")
         XCTAssertTrue(text.contains(long), "the row is trimmed; the tip must not be")
     }
 }
