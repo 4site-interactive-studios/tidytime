@@ -69,12 +69,12 @@ public enum CredentialCatalog {
             steps: [
                 "Open the Google Cloud Console (link below) signed in with your work Google account.",
                 "Create a project (or pick your company's existing one), then search for “Google Calendar API” and click Enable.",
-                "Go to “OAuth consent screen”: choose User type “Internal”, fill in an app name like “TidyTime”, and save.",
-                "Go to “Credentials” → “Create Credentials” → “OAuth client ID” → Application type “Desktop app” → Create.",
+                "Go to “Google Auth Platform” → “Audience”: choose User type “Internal”, fill in an app name like “TidyTime”, and save. (Google used to call this the “OAuth consent screen”.)",
+                "Go to “Google Auth Platform” → “Clients” → “Create client” → Application type “Desktop app” → Create.",
                 "Google now shows you a Client ID and a Client secret. They go to different places: the Client ID (ends in .apps.googleusercontent.com) goes in TidyTime's settings file (Doctor → Paths → Config) under “google” → “client_id”. The Client secret is what you paste below.",
                 "The third value — the sign-in token — is created automatically when you click “Sign in with Google” underneath. You never type that one.",
             ],
-            links: [CredentialLink("Open Google Cloud Console", URL(string: "https://console.cloud.google.com/apis/credentials")!)]),
+            links: [CredentialLink("Open Google Cloud Console", URL(string: "https://console.cloud.google.com/auth/clients")!)]),
 
         CredentialInfo(
             key: SecretKey.googleRefreshToken,

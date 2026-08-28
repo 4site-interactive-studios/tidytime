@@ -329,11 +329,13 @@ Google's sensitive-scope review **and** the refresh token does not expire every 
 **Click-path (Google Cloud Console, signed in as a 4Site Workspace admin/user)**
 1. **Select or create a project** inside the 4Site Workspace org (top project picker → your org).
 2. **APIs & Services → Library** → search **Google Calendar API** → **Enable**.
-3. **APIs & Services → OAuth consent screen** → **User type: Internal** → **Create** → fill app
-   name (e.g. "TidyTime"), support email, developer email → **Save**. (Internal = no sensitive-scope
-   verification, no Testing/Publishing gate.)
-4. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → **Application type:
-   Desktop app** → name it → **Create**.
+3. **Google Auth Platform → Audience** → **User type: Internal** → fill app name (e.g. "TidyTime"),
+   support email, developer email → **Save**. (Internal = no sensitive-scope verification, no
+   Testing/Publishing gate.) Google renamed this screen; it used to be **APIs & Services → OAuth
+   consent screen**, and most walkthroughs still say that.
+4. **Google Auth Platform → Clients** (`console.cloud.google.com/auth/clients`) → **Create client**
+   → **Application type: Desktop app** → name it → **Create**. Formerly **APIs & Services →
+   Credentials → Create Credentials → OAuth client ID**.
 5. A Desktop OAuth client gives you **three** values that go to **three different places** —
    this is the step that confuses people:
 

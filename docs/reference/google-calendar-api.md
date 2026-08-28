@@ -62,6 +62,12 @@ publishing status and does not carry this expiry, so the refresh token persists 
 six months of non-use, or a password change. This is exactly the "install once, run for months"
 behavior a passive capture app needs.
 
+**If `Internal` is not offered** the project is not inside the Workspace org, and the fix is to
+move or recreate it there. Do **not** settle for `External` + `Testing`. If the project genuinely
+cannot live in the org, the only other expiry-free path is `External` + publishing status
+**`In production`**, which for a sensitive scope like `calendar.readonly` means going through
+Google's verification first. That is a schedule cost, not a config toggle (verified 2026-08-28).
+
 **Client type.** Create the credential as an **OAuth client ID → Application type: Desktop
 app**. This yields a `client_id` and a `client_secret`. For a Desktop (installed) app the
 `client_secret` is **not confidential** — it ships inside any distributed binary and PKCE, not

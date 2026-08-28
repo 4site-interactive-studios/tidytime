@@ -1410,3 +1410,32 @@ third. The suite that actually missed the `task_number` mismatch was **332** —
 written in that very commit *to catch the bug*. Corrected to 332 everywhere. Also caught: `9ef01af`,
 whose one job was replacing carried-forward numbers, walked past `site/index.html` — still 279,
 now 347.
+
+## Google console navigation renamed; Internal is still the only sane choice (2026-08-28)
+
+Setting up the Google client for the first time surfaced that our click-paths point at menus Google
+has since renamed. Corrected in `permissions-setup.md` §9 and in the `CredentialCatalog` steps the
+Settings pane renders:
+
+- **OAuth consent screen** is now **Google Auth Platform → Audience**.
+- **APIs & Services → Credentials → Create Credentials → OAuth client ID** is now **Google Auth
+  Platform → Clients → Create client** (`console.cloud.google.com/auth/clients`).
+- Both docs now name the old label too, because every third-party walkthrough still uses it.
+
+Re-verified against Google's live docs while making the change:
+
+- **Desktop app + loopback is safe.** The loopback IP address flow deprecation applies to Android,
+  iOS and Chrome app clients only; Google's migration guide states Desktop app clients continue to
+  be supported. Our ADR choice of loopback + PKCE for an installed app needs no revisiting.
+- **The 7-day trap is real and precisely scoped.** It fires on *external* user type **and**
+  publishing status `Testing`, unless the scopes are a subset of name/email/profile.
+  `calendar.readonly` is not in that subset. `Internal` remains the requirement.
+- **New in the doc:** `External` + `In production` also avoids the 7-day expiry, so a project that
+  cannot live in the Workspace org is not a dead end. It is a slow path, because a sensitive scope
+  then needs Google's verification. Recorded so nobody rediscovers `External` + `Testing` as the
+  apparent workaround.
+
+Not changed: the three-values-three-places table was already correct, including that the client
+secret is pasted in **Settings → Credentials** rather than written with the `security` CLI. Writing
+it by hand invites exactly the ACL mismatch the 2026-07-25 Keychain entry describes, and it puts the
+secret in shell history for no benefit.
