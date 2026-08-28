@@ -16,7 +16,7 @@ in a few minutes instead of an end-of-week archaeology session.
 
 > **Status: running in production (one user), signed and validated on a real Mac.**
 > All seven phases (0–6) of logic ship as tested SwiftPM targets under `Packages/TidyKit`
-> — **332 unit tests, 0 failures** — covering capture, the read-only Productive
+> — **347 unit tests, 0 failures** — covering capture, the read-only Productive
 > mirror, Fathom/Calendar/Slack ingest, the classification ladder, the suggestion engine, the
 > metered AI router, and the Google OAuth sign-in flow. The macOS app in `App/` hosts those modules
 > and has been **launched and validated live** (2026-07-25→27): signed dmg installed, TCC grants

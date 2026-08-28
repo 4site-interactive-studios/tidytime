@@ -1,6 +1,6 @@
 # Running TidyTime — what was built, and how to get it going
 
-**Describes commit `fe160c8` · 332 tests passing (`make test` regenerates) · 2026-08-28.**
+**Describes commit `fc269e0` · 347 tests passing (`make test` regenerates) · 2026-08-28.**
 If `HEAD` is newer than that, re-verify before trusting the numbers below — regenerate them with
 `make test` and `make coverage` rather than copying them forward.
 
@@ -45,8 +45,8 @@ Architecture: [overview](architecture/overview.md) · [module map](architecture/
 
 | | | Produced by |
 |---|---|---|
-| **332 unit tests, 0 failures** | | `cd Packages/TidyKit && swift test` |
-| **64.71% line / 68.48% region coverage** on `Sources/` | measured 2026-08-28; the shortfall is SwiftUI + live-OS code that can't run headlessly | `make coverage` |
+| **347 unit tests, 0 failures** | | `make test` |
+| **64.25% line / 68.34% region coverage** on `Sources/` | measured 2026-08-28; the shortfall is SwiftUI + live-OS code that can't run headlessly | `make coverage` |
 | **8 SwiftPM library targets** + 1 app target | | `Package.swift` |
 | **9 guardrails**, each backed by a test | | [guardrails.md](guardrails.md) |
 | **9 migrations** `v1-core` … `v2-page-snapshot-time-index` | additive; upgrade path tested | [data-model.md](architecture/data-model.md#registered-migrations-as-shipped) |
@@ -164,7 +164,7 @@ All land in the **Keychain**. A set key is locked until removed, and removal ask
 **8 · Verify.**
 ```bash
 make doctor      # paths + permission status
-make test        # 332 tests
+make test        # 347 tests
 make coverage    # per-file coverage
 make lint        # documentation links resolve
 ```
