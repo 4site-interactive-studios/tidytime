@@ -184,8 +184,18 @@ Read-only mirror of companies, projects, tasks, time entries, people
 **Verify:** setup resolves your own `person_id` (a `GET /people?filter[email]=…`) and the popover
 shows today's logged total (Phase 2 acceptance).
 
-> While you're in the web app, also grab the **task deep-link pattern** (open any task, copy the
-> URL) for `config.productive.task_deep_link_pattern` — tracked in [open-items.md](open-items.md).
+> **While you're in the web app, note two different org identifiers.** Your URL looks like
+> `app.productive.io/2650-acme-inc/…`:
+>
+> | `config.json` key | Value from that URL | Used for |
+> |---|---|---|
+> | `organization.productive_organization_id` | `2650` (just the digits) | The `X-Organization-Id` API header |
+> | `organization.productive_org_slug` | `2650-acme-inc` (the whole segment) | Task deep links in the recap |
+>
+> They are **not** interchangeable. The deep-link pattern itself no longer needs capturing — it was
+> confirmed as `https://app.productive.io/{org_slug}/tasks/task/{task_id}` and ships as the default
+> ([reference/productive-api.md](reference/productive-api.md#task-deep-links-web-app-not-the-api)).
+> Deep links stay hidden until `productive_org_slug` is set.
 
 ---
 

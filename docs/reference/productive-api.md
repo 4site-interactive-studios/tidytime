@@ -39,7 +39,7 @@ wrong org's data or `401`/`403`.
 | Header | Value | Where it comes from |
 |---|---|---|
 | `X-Auth-Token` | personal API token | Productive → **Settings → API integrations → Generate new token**. Stored in Keychain only ([G6](../guardrails.md#g6--secrets-live-in-the-keychain-only)). |
-| `X-Organization-Id` | numeric org id | Same Settings page / URL of the web app. Non-secret; lives in `config.json`. |
+| `X-Organization-Id` | **numeric** org id (`2650`) | Same Settings page, or the digits at the start of the web-app URL segment. Non-secret; `config.json` → `organization.productive_organization_id`. **Not** the slug — see below. |
 | `Content-Type` | `application/vnd.api+json` | JSON:API media type (send on GET too for consistency). |
 
 ⚠️ Build-time check: Productive does not document read-only token scoping, so the read-only
@@ -449,8 +449,50 @@ ON CONFLICT(source) DO UPDATE SET
 
 ---
 
+## Task deep links (web app, not the API)
+
+**Verified against a live task 2026-08-28** (resolves open item
+[A2](../open-items.md#a2--capture-the-productive-task-deep-link-pattern)):
+
+```
+https://app.productive.io/2650-4site-interactive-studios-inc/tasks/task/18609405
+                         └────────── org slug ───────────┘ └───┘      └── task id
+```
+
+Two facts, both of which the original implementation got wrong:
+
+1. **The org segment is the slug, not the numeric id.** `2650-4site-interactive-studios-inc`, not
+   `2650`. The API header wants the number; the web app routes on the slug. They are different
+   strings and neither substitutes for the other. `config.json` therefore carries **both**:
+   `organization.productive_organization_id` (number) and `organization.productive_org_slug` (slug).
+2. **The path is `/tasks/task/<id>`, not `/task/<id>`.** Note the plural collection segment before
+   the singular one.
+
+The id in the URL is the **task id** (the same `id` the API returns), not the human-facing task
+number.
+
+`config.productive.task_deep_link_pattern` supports three tokens:
+
+| Token | Substitutes | Notes |
+|---|---|---|
+| `{org_slug}` | `organization.productive_org_slug` | Used by the default pattern. |
+| `{org}` | `organization.productive_organization_id` | Kept working unchanged for back-compat. |
+| `{task_id}` | the task id | |
+
+Default: `https://app.productive.io/{org_slug}/tasks/task/{task_id}`.
+
+If a pattern needs a value the config does not supply, `ProductiveDeepLink.url` returns `nil` and
+callers **must hide the link** rather than emit `…//tasks/task/123`. A link that promises a task
+and delivers a 404 is worse than no link: it costs a context switch to discover, and it is not
+self-explaining.
+
+---
+
 ## Gotchas
 
+- **The numeric org id and the URL slug are different identifiers.** `X-Organization-Id: 2650`,
+  but `app.productive.io/2650-acme-inc/…`. Substituting one for the other produces a 404 on the
+  web side and an auth failure on the API side.
 - **`X-Organization-Id` is mandatory.** Omitting it does not error usefully; it returns
   nothing or the wrong org. Set it on the shared client, not per call.
 - **`included` is deduplicated.** A resource referenced by many parents appears **once** in

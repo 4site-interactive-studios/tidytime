@@ -1,7 +1,7 @@
 {
   "_about": "Copy to config.json (gitignored). This file holds NON-SECRET settings only. All tokens/keys live in the macOS Keychain (guardrail G6). Values below are v1 defaults; edit in the app's Settings.",
   "_build_time_checks": [
-    "productive.task_deep_link_pattern — capture the real pattern from the Productive web app (Phase 2).",
+    "organization.productive_org_slug — the whole first path segment of your Productive web URL, e.g. 2650-acme-inc. NOT the same string as productive_organization_id (2650); the API header needs the number, the web app needs the slug. Deep links are suppressed until this is set.",
     "ai.models.*.model — confirm exact model slugs at the provider (Fireworks catalog churns; Phase 6).",
     "ai.prices_usd_per_mtok — confirm live pricing when accounts are created; Claude prices left null until set.",
     "ai routing: ALL cloud inference (economy AND escalation) goes through Fireworks AI — one vendor, one key, one ledger. NOTE: Anthropic's Claude/Fable are proprietary and NOT served on Fireworks, so the escalation rung uses a stronger OPEN-WEIGHT model on Fireworks (deepseek-v3 placeholder — confirm/choose the best available adjudicator). The 'anthropic-claude' model entry remains as an OPTIONAL direct-API path (needs a separate Anthropic key); it is not the default and requires only a routing change to enable."
@@ -9,13 +9,14 @@
 
   "organization": {
     "productive_organization_id": "REPLACE_WITH_ORG_ID",
+    "productive_org_slug": "REPLACE_WITH_ORG_SLUG",
     "productive_person_id": "resolved_at_setup",
     "timezone": "America/New_York"
   },
 
   "productive": {
     "base_url": "https://api.productive.io/api/v2/",
-    "task_deep_link_pattern": "https://app.productive.io/{org}/task/{task_id}",
+    "task_deep_link_pattern": "https://app.productive.io/{org_slug}/tasks/task/{task_id}",
     "sync_interval_seconds": 900
   },
 

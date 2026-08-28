@@ -78,23 +78,33 @@ public struct Config: Codable, Sendable, Equatable {
     // MARK: - Blocks
 
     public struct Organization: Codable, Sendable, Equatable {
+        /// Numeric organization id — what the `X-Organization-Id` API header requires. In
+        /// `app.productive.io/2650-acme-inc/`, this is `2650`.
         public var productiveOrganizationId: String
+        /// Web-app URL slug — the **whole** first path segment, `2650-acme-inc`. A different
+        /// string from ``productiveOrganizationId``, and the one the web app routes on; the API
+        /// header will not accept it and the web app will not accept the bare number.
+        public var productiveOrgSlug: String
         public var productivePersonId: String
         public var timezone: String
-        public init(productiveOrganizationId: String = "", productivePersonId: String = "",
+        public init(productiveOrganizationId: String = "", productiveOrgSlug: String = "",
+                    productivePersonId: String = "",
                     timezone: String = "America/New_York") {
             self.productiveOrganizationId = productiveOrganizationId
+            self.productiveOrgSlug = productiveOrgSlug
             self.productivePersonId = productivePersonId
             self.timezone = timezone
         }
         enum CodingKeys: String, CodingKey {
             case productiveOrganizationId = "productive_organization_id"
+            case productiveOrgSlug = "productive_org_slug"
             case productivePersonId = "productive_person_id"
             case timezone
         }
         public init(from d: Decoder) throws {
             let c = try d.container(keyedBy: CodingKeys.self); let z = Organization()
             productiveOrganizationId = try c.decodeIfPresent(String.self, forKey: .productiveOrganizationId) ?? z.productiveOrganizationId
+            productiveOrgSlug = try c.decodeIfPresent(String.self, forKey: .productiveOrgSlug) ?? z.productiveOrgSlug
             productivePersonId = try c.decodeIfPresent(String.self, forKey: .productivePersonId) ?? z.productivePersonId
             timezone = try c.decodeIfPresent(String.self, forKey: .timezone) ?? z.timezone
         }
@@ -105,7 +115,7 @@ public struct Config: Codable, Sendable, Equatable {
         public var taskDeepLinkPattern: String
         public var syncIntervalSeconds: Int
         public init(baseUrl: String = "https://api.productive.io/api/v2/",
-                    taskDeepLinkPattern: String = "https://app.productive.io/{org}/task/{task_id}",
+                    taskDeepLinkPattern: String = "https://app.productive.io/{org_slug}/tasks/task/{task_id}",
                     syncIntervalSeconds: Int = 900) {
             self.baseUrl = baseUrl; self.taskDeepLinkPattern = taskDeepLinkPattern
             self.syncIntervalSeconds = syncIntervalSeconds

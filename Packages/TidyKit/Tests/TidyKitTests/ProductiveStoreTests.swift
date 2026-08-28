@@ -78,10 +78,87 @@ final class ProductiveSyncTests: XCTestCase {
 }
 
 final class DeepLinkTests: XCTestCase {
-    func testBuildsDeepLink() {
+    /// Ground truth, observed from the live web app on 2026-08-28:
+    /// `https://app.productive.io/2650-4site-interactive-studios-inc/tasks/task/18609405`
+    private static let realURL = "https://app.productive.io/2650-4site-interactive-studios-inc/tasks/task/18609405"
+
+    func testDefaultPatternReproducesTheRealURL() {
         let url = ProductiveDeepLink.url(
-            taskId: "t1", organizationId: "42",
+            taskId: "18609405",
+            organizationId: "2650",
+            organizationSlug: "2650-4site-interactive-studios-inc",
+            pattern: Config().productive.taskDeepLinkPattern)
+        XCTAssertEqual(url, Self.realURL)
+    }
+
+    /// The numeric id and the slug are different strings. Substituting the numeric id into the web
+    /// URL — what the shipped default did — produces a link that 404s.
+    func testNumericIdIsNotTheSlug() {
+        let wrong = ProductiveDeepLink.url(
+            taskId: "18609405", organizationId: "2650",
             pattern: "https://app.productive.io/{org}/task/{task_id}")
-        XCTAssertEqual(url, "https://app.productive.io/42/task/t1")
+        XCTAssertEqual(wrong, "https://app.productive.io/2650/task/18609405")
+        XCTAssertNotEqual(wrong, Self.realURL, "the old default could never produce a working URL")
+    }
+
+    /// Back-compat: `{org}` must keep substituting the numeric id exactly as before, so an existing
+    /// config keeps working untouched.
+    func testOrgTokenStillSubstitutesTheNumericId() {
+        XCTAssertEqual(
+            ProductiveDeepLink.url(taskId: "t1", organizationId: "42",
+                                   pattern: "https://app.productive.io/{org}/task/{task_id}"),
+            "https://app.productive.io/42/task/t1")
+    }
+
+    /// The live machine's hand-written workaround: slug hardcoded, no `{org}` token at all. It must
+    /// keep working after the fix.
+    func testHandHardcodedPatternKeepsWorking() {
+        let url = ProductiveDeepLink.url(
+            taskId: "18609405", organizationId: "2650", organizationSlug: "",
+            pattern: "https://app.productive.io/2650-4site-interactive-studios-inc/tasks/task/{task_id}")
+        XCTAssertEqual(url, Self.realURL)
+    }
+
+    /// A missing slug suppresses the link rather than emitting `//tasks/task/…`, which would
+    /// promise a task and deliver a 404.
+    func testMissingSlugSuppressesTheLink() {
+        XCTAssertNil(ProductiveDeepLink.url(
+            taskId: "18609405", organizationId: "2650", organizationSlug: "",
+            pattern: Config().productive.taskDeepLinkPattern))
+        XCTAssertNil(ProductiveDeepLink.url(
+            taskId: "18609405", organizationId: "2650", organizationSlug: "   ",
+            pattern: Config().productive.taskDeepLinkPattern))
+    }
+
+    func testMissingOrgIdSuppressesAnOrgPattern() {
+        for id in ["", "REPLACE_WITH_ORG_ID"] {
+            XCTAssertNil(ProductiveDeepLink.url(
+                taskId: "t1", organizationId: id,
+                pattern: "https://app.productive.io/{org}/task/{task_id}"))
+        }
+    }
+
+    func testEmptyTaskIdSuppressesTheLink() {
+        XCTAssertNil(ProductiveDeepLink.url(
+            taskId: "", organizationId: "2650", organizationSlug: "acme",
+            pattern: Config().productive.taskDeepLinkPattern))
+    }
+
+    /// Both tokens in one pattern: `{org}` must not eat the `{org_slug}` occurrence.
+    func testSlugAndNumericTokensCoexist() {
+        XCTAssertEqual(
+            ProductiveDeepLink.url(taskId: "t1", organizationId: "2650", organizationSlug: "2650-acme",
+                                   pattern: "https://x/{org_slug}/o/{org}/t/{task_id}"),
+            "https://x/2650-acme/o/2650/t/t1")
+    }
+
+    func testConfigCarriesTheSlugSeparatelyFromTheNumericId() throws {
+        let json = #"{"organization":{"productive_organization_id":"2650","productive_org_slug":"2650-acme-inc"}}"#
+        let c = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        XCTAssertEqual(c.organization.productiveOrganizationId, "2650")
+        XCTAssertEqual(c.organization.productiveOrgSlug, "2650-acme-inc")
+        // Absent in an older config → empty, which suppresses the link rather than breaking load.
+        let old = try JSONDecoder().decode(Config.self, from: Data(#"{"organization":{}}"#.utf8))
+        XCTAssertEqual(old.organization.productiveOrgSlug, "")
     }
 }

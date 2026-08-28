@@ -31,18 +31,39 @@ box and stamp the date when resolved.
 
 ### A2 — Capture the Productive task deep-link pattern
 
-- [ ] **Resolved** (date: ____ )
+- [x] **Resolved** (date: 2026-08-28 )
 - **Question:** What is the exact web-app URL that opens a specific task?
 - **Why it matters:** Every suggestion card has an "Open task in Productive" deep link
   ([PLAN.md](../PLAN.md) §8). The pattern is **not** in the API docs and must be observed from the
   running web app; a wrong pattern makes every deep link dead.
 - **Resolve by:** **Phase 2** (Productive mirror). Acceptance requires clicking a cached task to
   open it in Productive.
-- **How to resolve:** Open any task in the Productive web app, copy the URL, and generalize it into
-  `config.productive.task_deep_link_pattern`. The default placeholder is
-  `https://app.productive.io/{org}/task/{task_id}` ([config.example.json](../config.example.json)) —
-  replace with the real shape (confirm the `{org}` segment and whether it's task **id** vs. task
-  **number**). See [reference/productive-api.md](reference/productive-api.md).
+- **Answer — confirmed against a live task, 2026-08-28:**
+
+  ```
+  https://app.productive.io/2650-4site-interactive-studios-inc/tasks/task/18609405
+  ```
+
+  The shipped default was wrong in **two** independent ways, so no link it produced could have
+  worked:
+
+  1. **The org segment is the URL slug, not the numeric id.** `2650-4site-interactive-studios-inc`,
+     not `2650`. The numeric id is what `X-Organization-Id` requires; the web app routes on the
+     slug. `{org}` was substituting the number into a web URL.
+  2. **The path is `/tasks/task/<id>`** — plural collection, then singular — not `/task/<id>`.
+
+  The trailing id is the **task id** (the same `id` the API returns), not the task number.
+
+  Resolution: `organization.productive_org_slug` added to config, an `{org_slug}` token added to
+  the substitution, and the default changed to
+  `https://app.productive.io/{org_slug}/tasks/task/{task_id}`. `{org}` still substitutes the
+  numeric id unchanged, so an existing config keeps working. A pattern whose tokens the config
+  cannot fill yields `nil` and the link is hidden rather than emitting a dead URL.
+  See [reference/productive-api.md](reference/productive-api.md#task-deep-links-web-app-not-the-api).
+
+  **Still open, tracked separately:** no UI renders this link yet. `ProductiveDeepLink` has no
+  production caller — `suggestions.deep_link` is always `NULL` and the recap card shows only
+  Copy / Log it / Toss. The pattern is now correct and ready for the card that will use it.
 
 ### A3 — Verify the exact Slack user-scope list at manifest time
 
