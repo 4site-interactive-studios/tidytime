@@ -36,17 +36,38 @@ public struct EntityBootstrap: Sendable {
         "off", "pto", "holiday", "vacation", "training", "onboarding", "hiring", "recruiting",
     ]
 
+    /// Bookkeeping key for the throttle. Reuses `sync_state` exactly as the Slack `users.list`
+    /// refresh does — same problem, same shape.
+    static let stateKey = "entity_bootstrap"
+
+    /// The Productive vocabulary changes on the order of days, not minutes. Re-deriving it every
+    /// 300s costs ~1,200 redundant upserts per pass forever and can change nothing unless the
+    /// mirror itself changed.
+    static let refreshInterval: Int64 = 86_400
+
+    /// `force` skips the throttle — used by tests and by a manual re-run.
     @discardableResult
-    public func run(_ db: AppDatabase, now: Int64) throws -> Int {
-        var count = 0
+    public func run(_ db: AppDatabase, now: Int64, force: Bool = false) throws -> Int {
+        let prior = (try? db.syncState(Self.stateKey)) ?? nil
+        // The cursor records the cache size the vocabulary was derived from, so a fresh Productive
+        // sync re-derives immediately instead of waiting out the interval.
         let companies = try db.companies()
         let projects = try db.projects()
+        let fingerprint = "\(companies.count):\(projects.count)"
+        if !force,
+           let last = prior?.lastSuccessAt, now - last < Self.refreshInterval,
+           prior?.cursor == fingerprint {
+            return 0
+        }
+
+        var count = 0
+        var batch: [EntitySignal] = []
 
         // 1. Domains — exact, unambiguous, and free when present.
         for c in companies {
             guard let domain = c.domain?.lowercased(), !domain.isEmpty else { continue }
             for type in ["url_host", "email_domain"] {
-                try db.insertSignalIfAbsent(EntitySignal(
+                batch.append(EntitySignal(
                     signalType: type, signalValue: domain, clientId: c.id,
                     provenance: "bootstrapped", createdAt: now, updatedAt: now))
                 count += 1
@@ -79,11 +100,15 @@ public struct EntityBootstrap: Sendable {
             // Attach a project only when the token is unique to one project as well; otherwise the
             // signal still resolves the client, which is the more valuable half.
             let projectId = projectsByToken[token]?.count == 1 ? projectsByToken[token]?.first : nil
-            try db.insertSignalIfAbsent(EntitySignal(
+            batch.append(EntitySignal(
                 signalType: "keyword", signalValue: token, clientId: clientId, projectId: projectId,
                 provenance: "bootstrapped", createdAt: now, updatedAt: now))
             count += 1
         }
+
+        try db.insertSignalsIfAbsent(batch)
+        try db.saveSyncState(SyncState(source: Self.stateKey, cursor: fingerprint,
+                                       lastRunAt: now, lastSuccessAt: now))
         return count
     }
 }

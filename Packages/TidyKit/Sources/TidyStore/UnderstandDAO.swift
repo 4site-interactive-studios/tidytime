@@ -10,6 +10,19 @@ extension AppDatabase {
         try writer.write { db in var s = signal; try s.insert(db, onConflict: .ignore) }
     }
 
+    /// Bulk form — **one** transaction for the whole batch.
+    ///
+    /// The bootstrap mints ~1,200 signals on a real workspace. Inserting them one at a time is
+    /// ~1,200 separate write transactions, and the bootstrap runs on the pipeline cadence, so that
+    /// cost repeats forever to re-insert rows that already exist. Same `onConflict: .ignore`
+    /// semantics, so a `user_confirmed` row is still never overwritten.
+    public func insertSignalsIfAbsent(_ signals: [EntitySignal]) throws {
+        guard !signals.isEmpty else { return }
+        try writer.write { db in
+            for signal in signals { var s = signal; try s.insert(db, onConflict: .ignore) }
+        }
+    }
+
     /// Create or strengthen a signal. A `user_confirmed` provenance upgrades an existing row and
     /// overwrites its attribution (user rules outrank inferred ones).
     public func strengthenSignal(type: String, value: String, clientId: String?, projectId: String?,

@@ -122,6 +122,50 @@ final class EntityBootstrapTokenTests: XCTestCase {
         XCTAssertEqual(acme.clientId, "c99")
     }
 
+    // MARK: Cost — this runs on the pipeline cadence
+
+    /// Measured on the real workspace: 687 companies + 965 projects yield ~1,186 unambiguous
+    /// tokens. One write transaction each, every 300s, forever, to re-insert rows that already
+    /// exist. The vocabulary changes on the order of days, so the second pass must be a no-op.
+    func testSecondRunIsThrottledToANoOp() throws {
+        let db = try AppDatabase.inMemory()
+        try seed(db, companies: [("c1", "Acme Foundation", "acme.org")])
+
+        XCTAssertGreaterThan(try EntityBootstrap().run(db, now: 100), 0)
+        XCTAssertEqual(try EntityBootstrap().run(db, now: 200), 0,
+                       "nothing changed and no time passed — must not re-derive")
+        XCTAssertEqual(try EntityBootstrap().run(db, now: 100 + 86_399), 0,
+                       "still inside the interval with an identical cache")
+
+        // After the interval it DOES re-derive, deliberately. The fingerprint is only
+        // "companies:projects" counts, so a RENAMED project changes nothing it can see — without a
+        // periodic re-derive the vocabulary would go stale forever. One batched transaction a day
+        // is the price of catching that.
+        XCTAssertGreaterThan(try EntityBootstrap().run(db, now: 100 + 86_400), 0,
+                             "a daily re-derive catches renames the count fingerprint cannot see")
+    }
+
+    /// A fresh Productive sync must re-derive immediately rather than waiting out the interval —
+    /// otherwise new clients stay invisible for a day.
+    func testCacheChangeReDerivesImmediately() throws {
+        let db = try AppDatabase.inMemory()
+        try seed(db, companies: [("c1", "Acme Foundation", nil)])
+        XCTAssertGreaterThan(try EntityBootstrap().run(db, now: 100), 0)
+        XCTAssertEqual(try EntityBootstrap().run(db, now: 110), 0)
+
+        try seed(db, companies: [("c1", "Acme Foundation", nil), ("c2", "Beta Trust", nil)])
+        XCTAssertGreaterThan(try EntityBootstrap().run(db, now: 120), 0,
+                             "the mirror grew — re-derive now, not tomorrow")
+        XCTAssertEqual(try db.signals(values: ["beta"]).first?.clientId, "c2")
+    }
+
+    func testForceBypassesTheThrottle() throws {
+        let db = try AppDatabase.inMemory()
+        try seed(db, companies: [("c1", "Acme Foundation", nil)])
+        try EntityBootstrap().run(db, now: 100)
+        XCTAssertGreaterThan(try EntityBootstrap().run(db, now: 110, force: true), 0)
+    }
+
     func testEmptyCacheProducesNothingAndDoesNotThrow() throws {
         let db = try AppDatabase.inMemory()
         XCTAssertEqual(try EntityBootstrap().run(db, now: 100), 0)

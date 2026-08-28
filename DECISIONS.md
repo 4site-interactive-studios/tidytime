@@ -1531,3 +1531,36 @@ signal — user rules outrank bootstrapped ones forever.
 It now sees 3 because the company name mints a keyword too. I rewrote the assertion to check the
 signals it cares about rather than bumping the number — a test that pins a total count of sources
 breaks every time a source is added, and tells you nothing about behaviour.
+
+#### 2a. The bootstrap was about to cost 1,186 write transactions every 300 seconds
+
+Caught by a pre-push review, then measured against the real workspace rather than estimated:
+
+```
+distinct tokens seen   : 1,746
+UNAMBIGUOUS -> signals : 1,186   <-- one write transaction EACH
+ambiguous (rejected)   :   560
+```
+
+`insertSignalIfAbsent` opens its own `writer.write { }` per call (`UnderstandDAO.swift:9-11`), and
+I had wired the bootstrap into the 300s pipeline pass. So ~1,186 separate transactions every five
+minutes, forever, to re-insert rows that already exist. Wiring an orphaned job without asking what it
+costs to run *repeatedly* is its own failure mode — the job was written for a one-time setup path.
+
+Two fixes:
+- **Batch.** `insertSignalsIfAbsent([EntitySignal])` does the whole set in one transaction, same
+  `onConflict: .ignore`, so a `user_confirmed` row is still never overwritten.
+- **Throttle**, reusing the `sync_state` pattern the Slack `users.list` refresh already uses. Skips
+  when the cache fingerprint (`companies:projects` counts) is unchanged AND the interval has not
+  elapsed. A fresh Productive sync changes the fingerprint and re-derives immediately, so a new
+  client does not stay invisible for a day.
+
+**The daily re-derive is deliberate, and my first test asserted against it.** I wrote a test saying
+"identical cache → never re-derive", which failed. The implementation was right and the test was
+wrong: the fingerprint is only two counts, so a *renamed* project changes nothing it can see, and
+without a periodic pass the vocabulary would go stale forever. One batched transaction a day is the
+price of catching that. Corrected the test rather than weakening the code — the failing assertion
+was the useful part.
+
+Also validated by the measurement: the ambiguity guard rejects **560 of 1,746 tokens (32%)**. That
+is a lot of confident wrong attributions not made.
