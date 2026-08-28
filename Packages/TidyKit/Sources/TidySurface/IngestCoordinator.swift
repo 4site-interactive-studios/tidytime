@@ -140,7 +140,7 @@ public struct IngestCoordinator: Sendable {
             let builder = ProductiveRequestBuilder(baseURL: base,
                                                    organizationId: config.organization.productiveOrganizationId,
                                                    token: token)
-            let client = LiveProductiveClient(http: http, builder: builder, clock: clock)
+            let client = LiveProductiveClient(http: http, builder: builder, clock: clock, logger: logger)
             let (after, before) = Self.dateWindow(days: 30, clock: clock, tz: timeZone)
             let personId = config.organization.productivePersonId
             try await ProductiveSync(client: client, db: db, clock: clock)

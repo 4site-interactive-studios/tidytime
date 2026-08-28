@@ -194,6 +194,23 @@ X-Organization-Id: 42
 | `attributes.archived_at` present | `archived` | `1` when non-null, else `0` |
 | — | `synced_at` | fetch epoch |
 
+> **Scalar types here are not trustworthy — decode leniently.** On 2026-08-28 the first live task
+> sync threw
+> `DecodingError.typeMismatch … Path: data[0].attributes.task_number … Expected to decode Int but
+> found a string instead`. That single field aborted `ProductiveSync.run()` before it reached time
+> entries, so **both** `pd_tasks` and `pd_time_entries` sat at zero while companies, projects and
+> people synced normally.
+>
+> The doc above previously showed `"task_number": 412`. The model and the test fixtures were both
+> written from it, so all three agreed with each other and disagreed with the API — and 279 passing
+> tests reported nothing. `TidyIngest` now decodes every numeric-ish attribute through
+> `KeyedDecodingContainer.lenientInt` / `.lenientString`, which accept either representation and
+> degrade a bad value to `nil` rather than throwing. `JSONAPIDocument` additionally decodes `data`
+> element-by-element, so one malformed resource costs one row instead of the whole source.
+>
+> `company_type_id`, `project_type_id` and `number` are the same risk class and have **not** been
+> confirmed against live data; they are decoded leniently on that basis.
+
 ---
 
 ### projects → `pd_projects`
@@ -264,7 +281,7 @@ X-Organization-Id: 42
       "attributes": {
         "title": "Fix ENgrid donation-amount selector",
         "description": "Amount buttons not updating the hidden field on mobile.",
-        "task_number": 412,
+        "task_number": "412",
         "status": 1,
         "closed_at": null,
         "due_date": "2026-07-25"
@@ -291,8 +308,8 @@ X-Organization-Id: 42
 | `relationships.task_list.data.id` | `task_list_id` | |
 | `attributes.title` | `title` | |
 | `attributes.description` | `description` | |
-| `attributes.task_number` | `task_number` | |
-| `attributes.status` | `status` | map integer → `'open'`/`'closed'`. ⚠️ Build-time check: confirm `status` enum values (`1`=open, `2`=closed) on a live task |
+| `attributes.task_number` | `task_number` | ⚠️ **Sent as a JSON STRING** (`"412"`), not a number — verified against live 2026-08-28. Decode leniently; see below. |
+| `attributes.status` | `status` | Sent as a JSON **integer** (`1`). Map integer → `'open'`/`'closed'`. ⚠️ Build-time check still open: confirm the enum values (`1`=open, `2`=closed) once tasks sync. |
 | `attributes.closed_at` present | `closed` | `1`/`0` |
 | `relationships.assignee.data.id` | `assignee_id` | filter target |
 | `attributes.due_date` | `due_date` | `YYYY-MM-DD` |

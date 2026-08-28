@@ -1177,3 +1177,110 @@ in the tree. This is pre-existing at `8dda588`, is unrelated to every item in th
 of my edits added to the count (verified: 26 before, 26 after). Fixing it means either writing four
 missing docs or rewriting links across a dozen files — a scope call for the owner, not something to
 fold silently into a defect sweep. Flagged rather than fixed.
+
+---
+
+## Second live sweep (2026-08-28, after installing 22eb749)
+
+### 0. What the first sweep's fixes actually did in production
+
+Recorded because it is the evidence, and because the picture changed under me mid-session.
+
+Installing `22eb749` moved every needle the first sweep aimed at:
+
+| Table | Before | After 22eb749 ran |
+|---|---|---|
+| `meetings` | 0 | **201** |
+| `transcript_utterances` | 0 | **61,479** |
+| `daily_rollups` | 0 | **2** |
+| `page_snapshots` | 0 | **30** |
+| `pd_companies` / `pd_projects` / `pd_people` | 0 | 687 / 965 / 1,878 |
+| `pd_tasks` / `pd_time_entries` | 0 | **0** ← item 2 below |
+
+`ingest ok fathom` at 20:45:43 and `ingest ok slack` at 20:55:04 — both firsts. The Fathom cursor
+advanced to `2026-08-28T16:58:05Z` with `last_success_at` set, so the per-page persistence fix did
+what it was designed to do. Slack logged
+`slack conversation unreachable — skipping it, syncing the rest` exactly **once** and completed.
+
+**Two corrections to the first sweep, both from ground truth:**
+
+1. **The unreachable conversation is `D051S3F9W`, not `C07C12FMTEF`.** The live marker row reads
+   `unreachable-since:1787949943 channel_not_found (conversations.history)` for `D051S3F9W` — a
+   **DM** (`D` prefix), not a channel. `C07C12FMTEF` synced *successfully* at 20:45:43. The original
+   attribution was an inference: the error line carries no conversation id. The archived-public-
+   channel theory was therefore not what happened here; a DM with a deactivated user is likelier.
+   The fix was still correct and still worked — it skipped the right conversation.
+
+2. **"`last_success_at` NULL proves Slack never succeeded" was not sound reasoning.**
+   `IngestCoordinator` writes `sync_state` **only in its catch block**; the success path never
+   stamps the top-level row. Fathom and Google write their own, Slack does not — so `slack`'s row
+   can only ever contain errors. The defect was real and independently proven (the loop had no error
+   boundary, by inspection), but that particular piece of evidence did not support it. Noted so the
+   next reader does not repeat the inference. *(A source that succeeds should record it; not fixed
+   here, out of scope.)*
+
+**And a build regression caught by the provenance feature, within minutes of it shipping.** At
+20:56:26 `/Applications/TidyTime.app` was replaced with a **pre-provenance build** (no `TTGitSHA`,
+no `unreachable-since:`, no `rate limit: still refused`), which launched at 20:57:30 and is what is
+running now. Its `environment ready` line carries only `{"db":…}` — the old field set — sitting 25
+seconds after a line that carried the full provenance. The symptoms returned immediately: `http 429:`
+in the old wording at 20:57:45, `channel_not_found` aborting the run at 21:07:07. The likely cause is
+opening the *main repo's* `dist/TidyTime.dmg` (Jul 27, = `8dda588`, predating all nine commits)
+rather than the worktree's. This is precisely the confusion item 0 of the first sweep existed to
+make visible, and it took one `PlistBuddy` read instead of a day.
+
+### 2. Productive `task_number` — a type mismatch that cost two whole tables
+
+`ProductiveClient.TaskAttrs.taskNumber` was `Int?`. The live API sends `task_number` as a
+**string**. First live task sync:
+
+```
+decoding error: tasks: DecodingError.typeMismatch: expected value of type Int.
+Path: data[0].attributes.task_number. Expected to decode Int but found a string instead.
+```
+
+The blast radius is the point. `ProductiveSync.run()` fetches tasks *before* time entries, so the
+throw aborted the function and **neither** ran — `pd_tasks` and `pd_time_entries` both zero while
+companies, projects and people synced normally. It also silently disabled gap analysis, which needs
+`pd_time_entries` to know what was already logged.
+
+**Why 340 tests said nothing.** `docs/reference/productive-api.md` showed `"task_number": 412`, an
+integer. The model was written from the doc and the fixtures were written from the doc. All three
+agreed with each other and disagreed with Productive. A fixture that encodes our assumptions cannot
+falsify them.
+
+**A second one was hiding behind the first.** `status` was `String?` while the doc's own fixture
+shows `1`. Swift decodes in property order, so the throw on `taskNumber` meant `status` was never
+reached — fixing only the first would have surfaced the second on the very next sync.
+
+**Fixed structurally, not by flipping types**, per the same principle as the Slack conversation skip:
+
+- `KeyedDecodingContainer.lenientInt` / `.lenientString` accept a JSON number *or* a JSON string and
+  **never throw**; an unparseable value degrades that one field to `nil`.
+- Applied to **every** numeric-ish attribute, not just the two known-bad ones. `company_type_id`,
+  `project_type_id` and `number` are the same risk class and have never been checked against live
+  data; they are lenient on that basis rather than waiting to be surprised.
+- `JSONAPIDocument` now decodes `data` **element by element**, keeping good resources and counting
+  bad ones in `skipped`. One malformed resource costs one row, not the source.
+- `time` on a time entry stays **required** — a duration is the load-bearing value and a made-up `0`
+  would silently corrupt logged minutes. It is lenient about representation only; a genuinely
+  unusable one drops that row via the element skip.
+- Skips are logged at **error** level with the path and kept/skipped counts. A mirror that quietly
+  shrinks is worse than one that complains.
+
+No migration: the column stays `.integer` and `PDTask.taskNumber` stays `Int?`.
+
+**A hazard the element-skip introduced, and the guard for it.** Pagination decided "last page" by
+`doc.data.count < pageSize`. With skipping, a page whose rows all failed would look short and end
+the walk early, silently truncating the mirror. Fullness is now judged on **resources received**
+(`data.count + skipped`), pinned by `testPageFullnessCountsSkippedResources`.
+
+**Rejected:** changing `taskNumber` to `String?`. It is a number, the DB column is `.integer`, and
+`PDTask.taskNumber` is `Int?` — pushing the string outward would force a migration and move the
+parsing problem into the store instead of solving it at the boundary where the vendor's ambiguity
+actually lives.
+
+**The fixture is the deliverable.** `ProductiveIngestTests.tasks` now carries `"task_number":"101"`
+and `"status":1` — the live shapes, inverted from the doc on both fields. Verified by reverting the
+model to a strict `Int` decode with the new fixture in place: `ProductiveIngestTests` drops to zero
+passing and `testLiveTaskShapeDecodes` fails. The fixture now falsifies the bug it used to hide.

@@ -19,9 +19,14 @@ private enum Fixtures {
        "relationships":{"company":{"data":{"type":"companies","id":"c2"}}}}
     ]}
     """
+    /// Shapes verified against the LIVE API on 2026-08-28, not against our reference doc.
+    /// `task_number` comes back as a **string** and `status` as an **integer** — the exact inverse
+    /// of what productive-api.md showed and of what this fixture used to assert. A fixture written
+    /// from the doc is what let the type mismatch ship: model, fixture and doc all agreed with each
+    /// other and all disagreed with Productive.
     static let tasks = """
     { "data": [
-      {"id":"t1","type":"tasks","attributes":{"title":"Build donation page","description":"EN page","task_number":101,"status":"open","closed_at":null,"due_date":"2026-08-01"},
+      {"id":"t1","type":"tasks","attributes":{"title":"Build donation page","description":"EN page","task_number":"101","status":1,"closed_at":null,"due_date":"2026-08-01"},
        "relationships":{"project":{"data":{"type":"projects","id":"p1"}},"assignee":{"data":{"type":"people","id":"me"}},"task_list":{"data":{"type":"task_lists","id":"tl1"}}}}
     ]}
     """

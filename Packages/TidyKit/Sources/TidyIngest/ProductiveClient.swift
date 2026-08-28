@@ -4,6 +4,11 @@ import TidyStore
 
 // MARK: - Attribute payloads (explicit CodingKeys; no convertFromSnakeCase — see JSONAPI.swift)
 
+// Every numeric-ish attribute below is decoded LENIENTLY (see `KeyedDecodingContainer.lenientInt`
+// / `.lenientString` in JSONAPI.swift). Productive's reference doc shows `task_number` and
+// `status` as integers; the live API sends `task_number` as a string. Rather than flip one type
+// and wait to be surprised by the next one, every attribute whose JSON type we have not verified
+// against live data accepts both representations and degrades to `nil` instead of throwing.
 struct CompanyAttrs: Decodable, Sendable {
     let name: String
     let companyTypeId: Int?
@@ -11,6 +16,13 @@ struct CompanyAttrs: Decodable, Sendable {
     let archivedAt: String?
     enum CodingKeys: String, CodingKey {
         case name, companyTypeId = "company_type_id", domain, archivedAt = "archived_at"
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        companyTypeId = c.lenientInt(.companyTypeId)
+        domain = c.lenientString(.domain)
+        archivedAt = c.lenientString(.archivedAt)
     }
 }
 struct ProjectAttrs: Decodable, Sendable {
@@ -20,6 +32,15 @@ struct ProjectAttrs: Decodable, Sendable {
     let archivedAt: String?
     enum CodingKeys: String, CodingKey {
         case name, projectTypeId = "project_type_id", number, archivedAt = "archived_at"
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        projectTypeId = c.lenientInt(.projectTypeId)
+        // `number` is modelled as a string but is a project number — the same string/int ambiguity
+        // that bit `task_number`.
+        number = c.lenientString(.number)
+        archivedAt = c.lenientString(.archivedAt)
     }
 }
 struct TaskAttrs: Decodable, Sendable {
@@ -33,6 +54,18 @@ struct TaskAttrs: Decodable, Sendable {
         case title, description, taskNumber = "task_number", status
         case closedAt = "closed_at", dueDate = "due_date"
     }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        title = (try? c.decode(String.self, forKey: .title)) ?? ""
+        description = c.lenientString(.description)
+        // THE defect: live API sends this as "412", the doc showed 412.
+        taskNumber = c.lenientInt(.taskNumber)
+        // The second one, hiding behind the first — Swift decodes in property order, so the throw
+        // on `task_number` meant `status` was never reached. The doc's own fixture shows `1`.
+        status = c.lenientString(.status)
+        closedAt = c.lenientString(.closedAt)
+        dueDate = c.lenientString(.dueDate)
+    }
 }
 struct TimeEntryAttrs: Decodable, Sendable {
     let date: String
@@ -40,6 +73,16 @@ struct TimeEntryAttrs: Decodable, Sendable {
     let billableTime: Int?
     let note: String?
     enum CodingKeys: String, CodingKey { case date, time, billableTime = "billable_time", note }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        date = (try? c.decode(String.self, forKey: .date)) ?? ""
+        // `time` is the load-bearing value (minutes logged). Lenient about representation, but
+        // still REQUIRED: a time entry with no usable duration is not a row worth keeping, and the
+        // element-level skip in JSONAPIDocument drops just that entry rather than the whole sync.
+        time = try c.lenientRequiredInt(.time)
+        billableTime = c.lenientInt(.billableTime)
+        note = c.lenientString(.note)
+    }
 }
 struct PersonAttrs: Decodable, Sendable {
     let name: String?
@@ -47,6 +90,13 @@ struct PersonAttrs: Decodable, Sendable {
     let lastName: String?
     let email: String?
     enum CodingKeys: String, CodingKey { case name, firstName = "first_name", lastName = "last_name", email }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name = c.lenientString(.name)
+        firstName = c.lenientString(.firstName)
+        lastName = c.lenientString(.lastName)
+        email = c.lenientString(.email)
+    }
 }
 
 // MARK: - Mapping resource → pd_* record
@@ -136,12 +186,17 @@ public struct LiveProductiveClient: ProductiveClient {
     private let maxRetries: Int
     private let pageSize: Int
     private let sleeper: @Sendable (TimeInterval) async -> Void
+    /// Optional so tests stay silent; the app always passes one. Skipped resources are logged at
+    /// error level — a mirror that quietly shrinks is worse than one that complains.
+    private let logger: TidyLogger?
 
     public init(http: HTTPClient, builder: ProductiveRequestBuilder, clock: TidyClock = SystemClock(),
                 backoff: Backoff = Backoff(), maxRetries: Int = 3, pageSize: Int = 200,
+                logger: TidyLogger? = nil,
                 sleeper: @escaping @Sendable (TimeInterval) async -> Void = { s in
                     try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1_000_000_000))
                 }) {
+        self.logger = logger
         self.http = http; self.builder = builder; self.clock = clock; self.backoff = backoff
         self.maxRetries = maxRetries; self.pageSize = pageSize; self.sleeper = sleeper
     }
@@ -176,6 +231,7 @@ public struct LiveProductiveClient: ProductiveClient {
     ) async throws -> [R] {
         let syncedAt = Int64(clock.now.timeIntervalSince1970)
         var out: [R] = []
+        var skipped = 0
         var page = 1
         while true {
             var q = query
@@ -189,14 +245,24 @@ public struct LiveProductiveClient: ProductiveClient {
                 throw IngestError.decoding("\(path): \(error)")
             }
             out.append(contentsOf: doc.data.map { map($0, syncedAt) })
+            skipped += doc.skipped
+            // Page-fullness must be judged on RESOURCES RECEIVED, not resources kept. A page whose
+            // rows all failed to decode still means "there is more after this"; testing
+            // `doc.data.count` alone would silently truncate the walk at the first bad page.
+            let received = doc.data.count + doc.skipped
             if let links = doc.links {
                 if links.next == nil { break }
-            } else if doc.data.count < pageSize {
+            } else if received < pageSize {
                 break
             }
-            if doc.data.isEmpty { break }
+            if received == 0 { break }
             page += 1
             if page > 100 { break }  // safety valve
+        }
+        if skipped > 0 {
+            logger?.error("productive resources skipped — they failed to decode", [
+                "path": path, "skipped": String(skipped), "kept": String(out.count),
+            ])
         }
         return out
     }
