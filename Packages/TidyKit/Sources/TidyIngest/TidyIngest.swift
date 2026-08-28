@@ -18,6 +18,10 @@ public enum IngestError: Error, Sendable, Equatable, CustomStringConvertible {
     /// carried because the same code means different things per method — `not_in_channel` is
     /// documented on `conversations.history` but absent from the `conversations.replies` table.
     case slack(code: String, method: String)
+    /// Retries were exhausted against a rate limit. Distinct from `.http(429, "")`, which said
+    /// nothing a human could act on — it was logged 2,246 times over 33 days without once
+    /// explaining what was tried or what to check.
+    case rateLimited(provider: String, attempts: Int, waitedSeconds: TimeInterval, detail: String)
 
     public var description: String {
         switch self {
@@ -28,6 +32,9 @@ public enum IngestError: Error, Sendable, Equatable, CustomStringConvertible {
         // Message shape kept byte-compatible with the old `.transport` rendering so existing
         // Doctor hints and log-scraping keep matching.
         case .slack(let code, let method): return "transport error: slack error: \(code) (\(method))"
+        case .rateLimited(let provider, let attempts, let waited, let detail):
+            return "\(provider) rate limit: still refused after \(attempts) attempts over "
+                + "\(Int(waited.rounded()))s. \(detail)"
         }
     }
 }

@@ -109,9 +109,9 @@ final class FathomFirstSyncBoundTests: XCTestCase {
     final class CapturingFathomClient: FathomClient, @unchecked Sendable {
         private let lock = NSLock()
         private(set) var receivedCreatedAfter: [String?] = []
-        func fetchMeetings(createdAfter: String?) async throws -> [FathomMeetingBundle] {
+        func fetchMeetingsPage(createdAfter: String?, cursor: String?) async throws -> FathomPage {
             lock.withLock { receivedCreatedAfter.append(createdAfter) }
-            return []
+            return FathomPage(bundles: [], nextCursor: nil)
         }
     }
 

@@ -79,14 +79,40 @@ Every TidyTime poll requests transcript + summary, so **treat every `/meetings` 
 call**. Practical consequences:
 
 - Run the Fathom sync **serially** (concurrency 1). Do not fan out one request per meeting.
-- On **429**, back off and retry with jitter; respect any `Retry-After` if present, else start at
-  ~5 s and double. A 10-minute poll cadence leaves ample headroom even at the 5/60 s floor.
-- Paging through a backlog (first run) can burn the heavy budget fast; cap pages per run and let
-  the next poll continue from the stored cursor rather than draining the limit in one pass.
+- On **429**, back off and retry with jitter; respect any server-requested delay if present, else
+  start at ~5 s and double. A 10-minute poll cadence leaves ample headroom even at the 5/60 s floor.
+- Paging through a backlog (first run) can burn the heavy budget fast; **persist each page and let
+  the next poll continue from the stored cursor** rather than draining the limit in one pass.
 
-⚠️ **Build-time check:** the "drops to 5/60 s under load" behavior is documented qualitatively;
-confirm the exact throttle and whether a `Retry-After` header is returned once you can observe a
-real 429.
+**Limits re-verified 2026-08-28** — unchanged. Verbatim from
+<https://developers.fathom.ai/api-overview>: "you are able to make a maximum of 60 calls to the API
+in a 60 second window"; heavy calls are "30 in a 60 second window… during periods of elevated
+activity this limit may be adjusted down to 5 every 60 seconds."
+
+✅ **Build-time check resolved (2026-08-28): Fathom sends NO `Retry-After` header.** A live probe of
+`api.fathom.ai` returns the IETF `RateLimit-*` family instead:
+
+```
+HTTP/2 429
+ratelimit-limit: 60
+ratelimit-remaining: 0
+ratelimit-reset: 0
+```
+
+Two consequences a client must handle, both of which bit this codebase:
+
+1. **Read `RateLimit-Reset`, not just `Retry-After`.** A client that only looks for `Retry-After`
+   gets `nil` from Fathom every time and silently falls back to its own (much shorter) delay while
+   believing it is honoring the server.
+2. **Look headers up case-insensitively.** Over HTTP/2 header names are lowercase on the wire, so
+   `headers["Retry-After"]` misses `retry-after`. Use `HTTPResponse.serverRequestedDelay`, which
+   handles both the casing and the header-family difference.
+
+> **A 429 on every run for days is not a rate-limit problem.** The window is 60 seconds; a
+> 15-minute poll cadence clears it ~14 minutes before the next run. Continuous 429s across days
+> mean the run is re-requesting the same pages each time — i.e. it is discarding progress and
+> replaying — or the key itself is refused. Tuning the backoff will not fix either, and shipping
+> such a change hides the real fault. See DECISIONS.md item 4.
 
 ---
 

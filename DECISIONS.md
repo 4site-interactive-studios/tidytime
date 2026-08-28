@@ -987,3 +987,71 @@ existing-install phase-in dates appear on **no** live Slack page (the May 2025 c
 recaps were all checked) and the live banner says the opposite. Removed as unsourced. Open item
 **B3 resolved favorably**: internal customer-built apps remain explicitly exempt, so the poll-only
 design holds.
+
+### 4. Fathom — the 429 loop was structural, and the rebuild does **not** fix it
+
+**Direct answer to the question asked: no.** `FathomClient.swift` and `HTTP.swift` are
+**byte-identical** between `43ca776` (in the running Trash build) and HEAD `8dda588`.
+`git log --follow` on FathomClient.swift returns exactly two commits ever — `7a6d914` (created it,
+including `sendWithRetry` and `maxRetries: 3`) and `43ca776` (added only the 90-day fallback).
+Installing the current build reproduces this defect exactly.
+
+Empirically confirmed rather than inferred: the `43ca776` binary was signed 2026-07-27 04:13:02Z;
+the log holds 55 Fathom 429s before that instant and **2,191 after it**, uninterrupted through
+2026-08-28. `last_success_at` was never set — Fathom has never once succeeded.
+
+**Root cause: all-or-nothing pagination plus cursor-only-on-success.** `fetchMeetings` accumulated
+up to 100 pages into an array and returned only after the whole walk; `FathomSync.run` persisted
+nothing until that call returned, and wrote the cursor after that. So a 429 on *any* page threw out
+of the accumulator, **discarded every page already fetched and parsed**, and left the cursor
+untouched. 900s later the run recomputed `now − 90 days` and replayed the identical page sequence
+into the identical limit. A closed loop with no exit and no forward progress.
+
+The log caught it in the act: 6 of the 12 leaked request URLs carry `&cursor=eyJob3N0X2NhbGxz…`,
+proving the run had reached page 2+ before dying — and those pages went in the bin.
+
+**The 90-day bound could not have helped.** It shrank the input; the failure is structural, not
+size-dependent. Its own comment ("an unbounded first pull 429-loops forever") diagnosed the symptom
+correctly but the fix addressed only input size, not the discard-everything control flow.
+
+Fixed by inverting who drives pagination: `fetchMeetingsPage(createdAfter:cursor:)` returns one
+page, `FathomSync.run` loops, and **each page is persisted and the cursor advanced before the next
+request is made.** A rate limit becomes a pause instead of a wall. `lastSuccessAt` is stamped only
+on a complete walk, so a partial run is not misreported as clean.
+
+**Three contributing defects fixed with it:**
+
+1. **The retry budget was ~17× too small.** `maxRetries: 3` with `Backoff(base: 0.5, cap: 30)`
+   sleeps 0.5 + 1 + 2 = **3.5 seconds total** against a rolling **60-second** window. Measured run
+   duration (median 12s over 2,259 runs) matches that exactly. `docs/reference/fathom-api.md`
+   already prescribed "start at ~5s and double" — the code just didn't. Now base 5, 5 retries:
+   5+10+20+30+30 = 95s, which clears a 60s window with margin.
+
+2. **`Retry-After` handling was dead code, in all three clients.** Two independent reasons.
+   (a) Fathom sends **no `Retry-After` at all** — a live probe returns the IETF family
+   `ratelimit-limit: 60`, `ratelimit-remaining: 0`, `ratelimit-reset: 0`. (b) HTTP/2 lowercases
+   header names on the wire, and `URLSessionHTTPClient` copies them into a **case-sensitive**
+   dictionary that all three clients then subscripted with the literal `"Retry-After"`. So every
+   server-directed backoff was silently ignored in production while the code looked correct —
+   including Slack's, whose comment claims "Honors Retry-After, which Slack always sends on 429".
+   Fixed centrally: `HTTPResponse.serverRequestedDelay` looks up case-insensitively and falls back
+   to `RateLimit-Reset`. This one is a cross-client fix; it lands here because Fathom is where it
+   was caught.
+
+3. **`http 429: ` with an empty body was unactionable** — logged 2,246 times over 33 days without
+   once saying what was tried or what to check. `IngestError.rateLimited` now states the attempt
+   count, the real waited time, Fathom's actual heavy-call limits, that partial progress was kept,
+   and where to check the key.
+
+**A note on rate-limit arithmetic, because it shaped the diagnosis.** A 60-second window cannot
+stay exhausted across a 15-minute cadence — even the 5/60s floor resets 14 minutes before the next
+run. So "days of continuous 429s" was never a limits problem to tune away; it had to be a run
+re-requesting the same pages every time. That reasoning is what pointed at the discard-and-replay
+loop rather than at the backoff, and it is recorded in `docs/reference/fathom-api.md` so the next
+person does not "fix" this by lengthening a sleep.
+
+Rate limits themselves re-verified against Fathom's live docs and **unchanged**: 60/60s standard,
+30/60s heavy, floor 5/60s. The `⚠️ Build-time check` on whether a 429 carries `Retry-After` is now
+resolved (it does not). Open item **A1 resolved**: API access is confirmed working — the key exists
+and the endpoint answers. Worth stating plainly that A1 being green never implied ingest was
+working; `meetings` sat at 0 for 33 days with a perfectly good key.

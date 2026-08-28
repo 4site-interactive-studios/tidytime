@@ -68,7 +68,7 @@ public struct LiveSlackClient: SlackClient {
         while true {
             let response = try await http.send(request)
             if response.status == 429, attempt < maxRetries {
-                let retryAfter = response.headers["Retry-After"].flatMap(TimeInterval.init)
+                let retryAfter = response.serverRequestedDelay
                 await sleeper(backoff.delay(attempt: attempt, retryAfter: retryAfter))
                 attempt += 1
                 continue

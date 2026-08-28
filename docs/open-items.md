@@ -17,7 +17,14 @@ box and stamp the date when resolved.
 
 ### A1 — Confirm the Fathom plan includes API access
 
-- [ ] **Resolved** (date: ____ )
+- [x] **Resolved** (date: 2026-08-28 ) — **API access is included and working.** The key exists in
+  the Keychain under `fathom.api_key`, and the endpoint answers: 2,259 live requests are recorded
+  in the app log, `api.fathom.ai` returns real HTTP responses with rate-limit headers, and the
+  429s prove the requests reach Fathom's limiter rather than bouncing at auth. Transcripts are
+  therefore available; the calendar-only fallback is not needed.
+  Note this did **not** mean meetings were being banked — `meetings` sat at 0 for 33 days for an
+  unrelated reason (a pagination defect, item 4 in DECISIONS.md). API access and successful ingest
+  are separate questions, and confirming the first says nothing about the second.
 - **Question:** Does Bryan's Fathom plan tier expose API key generation?
 - **Why it matters:** Fathom recording start/end is ground truth for meeting duration
   ([PLAN.md](../PLAN.md) §5). No API access → no transcripts, no true durations; the app falls back

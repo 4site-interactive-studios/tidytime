@@ -25,6 +25,32 @@ public struct HTTPResponse: Sendable, Equatable {
     public static func json(_ string: String, status: Int = 200, headers: [String: String] = [:]) -> HTTPResponse {
         HTTPResponse(status: status, headers: headers, body: Data(string.utf8))
     }
+
+    /// Case-**insensitive** header lookup. HTTP header names are case-insensitive by spec, and
+    /// over HTTP/2 they are lowercase on the wire — so `headers["Retry-After"]` on a real HTTP/2
+    /// response misses `retry-after` every time. All three ingest clients did exactly that, which
+    /// silently disabled every server-directed backoff: `Retry-After` parsed as `nil` and the
+    /// client fell back to its own (much shorter) exponential delay while believing it was
+    /// honoring the server. Never subscript `headers` directly for a server-sent name.
+    public func header(_ name: String) -> String? {
+        if let exact = headers[name] { return exact }
+        let wanted = name.lowercased()
+        return headers.first { $0.key.lowercased() == wanted }?.value
+    }
+
+    /// Seconds the server says to wait, from whichever rate-limit header it actually sends.
+    ///
+    /// `Retry-After` is the common one, but it is **not** universal: Fathom advertises the IETF
+    /// `RateLimit-*` family (`ratelimit-limit`, `ratelimit-remaining`, `ratelimit-reset`) and sends
+    /// no `Retry-After` at all — verified against a live `api.fathom.ai` response on 2026-08-28.
+    /// A client that only reads `Retry-After` is flying blind against that provider.
+    public var serverRequestedDelay: TimeInterval? {
+        if let ra = header("Retry-After").flatMap(TimeInterval.init) { return ra }
+        // `ratelimit-reset` is seconds-until-reset. A 0 means "the window has already rolled";
+        // treat it as no guidance rather than "retry instantly", which would hammer the limit.
+        if let reset = header("RateLimit-Reset").flatMap(TimeInterval.init), reset > 0 { return reset }
+        return nil
+    }
 }
 
 public protocol HTTPClient: Sendable {
@@ -82,11 +108,17 @@ public final class FakeHTTPClient: HTTPClient, @unchecked Sendable {
     }
 }
 
-/// Exponential backoff with a cap; honors a server `Retry-After` when present.
+/// Exponential backoff with a cap; honors a server-requested delay when present.
 public struct Backoff: Sendable {
     public let base: TimeInterval
     public let cap: TimeInterval
     public init(base: TimeInterval = 0.5, cap: TimeInterval = 30) { self.base = base; self.cap = cap }
+
+    /// Total seconds this backoff will sleep across `retries` attempts with no server guidance.
+    /// Used to state the real waited time in an exhausted-retries error, instead of guessing.
+    public func totalDelay(retries: Int) -> TimeInterval {
+        (0..<max(0, retries)).reduce(0) { $0 + delay(attempt: $1) }
+    }
 
     public func delay(attempt: Int, retryAfter: TimeInterval? = nil) -> TimeInterval {
         if let retryAfter { return min(retryAfter, cap) }
