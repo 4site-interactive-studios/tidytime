@@ -77,7 +77,10 @@ public struct DiagnosticsAssembler: Sendable {
     /// reports what the app recorded. Extracted here so the round-trip is testable against
     /// `DiagnosticsBundle.render` output (round-3 R2-6).
     public static func permissions(fromSnapshot snapshot: String) -> [String: String] {
+        // Must stay in sync with PermissionInspector.statuses() — a key missing here is silently
+        // dropped from the CLI's view of the app's permission state.
         let known = ["Accessibility", "Automation (Chrome)", "Automation (System Events)",
+                     "Chrome JavaScript (Apple Events)",
                      "Code signature", "Notifications", "Screen Recording"]
         var out: [String: String] = [:]
         for line in snapshot.split(separator: "\n") where line.hasPrefix("- ") {

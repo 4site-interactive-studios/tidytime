@@ -70,3 +70,55 @@ public final class MutableFrontmostReader: FrontmostReading, @unchecked Sendable
     }
     public func current() -> FrontmostContext? { value }
 }
+
+
+/// Classifies the result of Chrome's `execute … javascript "1"` probe into the row the Doctor view
+/// shows.
+///
+/// Why this exists: `page_snapshots` sat at **0 rows for the life of the database** (proved by the
+/// absence of a `sqlite_sequence` row — SQLite creates one on the first successful insert and never
+/// removes it) while 34,586 Chrome URLs were captured. That split is the signature of Chrome's
+/// "Allow JavaScript from Apple Events" toggle being off: the URL/title path uses plain scripting
+/// terms and needs only Automation, while page text needs `execute javascript`, which the toggle
+/// gates.
+///
+/// The environment was the cause, but the *defect* was that nothing said so. Phase 1's acceptance
+/// criteria require "…`page_snapshots` gains no rows, **and `doctor` reports the degraded state**",
+/// and `permissions-setup.md` tells the user to verify with `make doctor` → Chrome JS = `ok` — a
+/// row that did not exist. A documented verification step the user could not perform.
+public enum ChromeJavaScriptProbe {
+    public static let statusKey = "Chrome JavaScript (Apple Events)"
+
+    public static let ok = "ok"
+    public static let toggleOff = "off — Chrome’s “Allow JavaScript from Apple Events” is unchecked"
+    public static let automationDenied = "blocked — Automation permission for Chrome is denied"
+    public static let notDetermined = "not determined — macOS has not asked yet"
+    public static let notRunning = "Chrome not running"
+    public static let unknown = "unknown"
+
+    /// Map a raw AppleScript outcome to a status string. `errorNumber`/`errorMessage` are the
+    /// `NSAppleScript` error fields; `result` is the script's return value when it succeeded.
+    ///
+    /// The numbers are AppleScript/Apple Event standards: −1743 "not authorized to send Apple
+    /// events", −1744 "user consent required", −600 "application isn't running".
+    public static func classify(result: String?, errorNumber: Int?, errorMessage: String?) -> String {
+        if let errorNumber {
+            switch errorNumber {
+            case -1743: return automationDenied
+            case -1744: return notDetermined
+            case -600, -609: return notRunning
+            default: break
+            }
+        }
+        // Chrome's refusal is a plain-language message, not a distinct error number, so the text is
+        // the only signal available.
+        if let errorMessage, errorMessage.lowercased().contains("turned off") { return toggleOff }
+        if errorNumber != nil { return unknown }
+        guard let result else { return unknown }
+        // The no-windows case returns "1" by construction so an idle Chrome is not misreported.
+        return result.trimmingCharacters(in: .whitespacesAndNewlines) == "1" ? ok : unknown
+    }
+
+    /// True only for the status that permits page-text capture.
+    public static func isEnabled(_ status: String) -> Bool { status == ok }
+}

@@ -1,5 +1,6 @@
 import Foundation
 import TidyCore
+import TidyCapture
 
 #if canImport(AppKit)
 import AppKit
@@ -24,8 +25,24 @@ public struct PermissionInspector: PermissionStatusProviding {
             "Automation (Chrome)": Self.automationStatus(bundleId: KnownBundle.chrome),
             "Automation (System Events)": Self.automationStatus(bundleId: KnownBundle.systemEvents),
             "Notifications": Self.notificationStatus(),
+            ChromeJavaScriptProbe.statusKey: Self.chromeJavaScriptStatus(),
             "Screen Recording": "not requested (by design — G3)",
         ]
+    }
+
+    private static let chromeJSCache = NotificationStatusCache()
+
+    /// Chrome's "Allow JavaScript from Apple Events" toggle — a Chrome setting, not a TCC grant.
+    ///
+    /// Without this row the toggle being off is completely invisible: page-text capture returns nil
+    /// silently, `page_snapshots` stays at 0 forever, and every other signal looks healthy because
+    /// URL/title capture does not need the toggle. `permissions-setup.md` has always told the user
+    /// to verify with `make doctor` → Chrome JS = `ok`; this is the row it was promising.
+    ///
+    /// Cached like `notificationStatus`: Doctor refreshes every 3s and a synchronous AppleScript
+    /// round-trip on the main thread must not run at that rate.
+    static func chromeJavaScriptStatus() -> String {
+        chromeJSCache.value(ttl: 15) { ChromeAdapter.javaScriptProbeStatus() }
     }
 
     /// The single most useful line in this view when permissions "won't stick".
@@ -85,7 +102,15 @@ public struct PermissionInspector: PermissionStatusProviding {
     private static let notificationCache = NotificationStatusCache()
 
     static func notificationStatus() -> String {
-        notificationCache.value(ttl: 15) {
+        // `UNUserNotificationCenter.current()` raises an uncatchable ObjC exception
+        // ("bundleProxyForCurrentProcess is nil") when the process has no app bundle — a test
+        // runner, or a command-line tool like `tidytime-doctor`. Check first: an inspector that
+        // hard-crashes outside an app bundle cannot be used by the tooling that most needs it.
+        // The check is on the bundle SHAPE, not its identifier: a test runner reports an
+        // identifier but its bundleURL is a plain directory
+        // (…/Xcode.app/Contents/Developer/usr/bin/), which is exactly the case that raises.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return "unknown (no app bundle)" }
+        return notificationCache.value(ttl: 15) {
             let sem = DispatchSemaphore(value: 0)
             var result = "unknown"
             UNUserNotificationCenter.current().getNotificationSettings { settings in

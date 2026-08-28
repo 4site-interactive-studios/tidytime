@@ -45,16 +45,25 @@ public struct ChromeAdapter: BrowserAdapter {
 
     public func visiblePageText() -> String? {
         guard javaScriptFromAppleEventsEnabled() else { return nil }
+        // `document.body` is null on chrome://, the PDF viewer, and blank tabs; the bare
+        // `document.body.innerText` threw there, and a thrown script is indistinguishable from the
+        // toggle being off. Guard it so those pages read as "no text", not as a broken setup.
         let script = """
         tell application "Google Chrome"
             if (count of windows) = 0 then return ""
-            execute active tab of front window javascript "document.body.innerText"
+            execute active tab of front window javascript "document.body ? document.body.innerText : ''"
         end tell
         """
         return Self.run(script)
     }
 
     public func javaScriptFromAppleEventsEnabled() -> Bool {
+        ChromeJavaScriptProbe.isEnabled(Self.javaScriptProbeStatus())
+    }
+
+    /// The probe's full status, for the Doctor row. Returns one of `ChromeJavaScriptProbe`'s
+    /// values so a failure says *which* failure it is instead of just "no text".
+    public static func javaScriptProbeStatus() -> String {
         let script = """
         tell application "Google Chrome"
             if (count of windows) = 0 then return "1"
@@ -63,7 +72,10 @@ public struct ChromeAdapter: BrowserAdapter {
         """
         var err: NSDictionary?
         let result = NSAppleScript(source: script)?.executeAndReturnError(&err)
-        return err == nil && result != nil
+        return ChromeJavaScriptProbe.classify(
+            result: result?.stringValue,
+            errorNumber: err?[NSAppleScript.errorNumber] as? Int,
+            errorMessage: err?[NSAppleScript.errorMessage] as? String)
     }
 
     private static func run(_ source: String) -> String? {

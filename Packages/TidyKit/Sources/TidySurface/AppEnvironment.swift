@@ -221,11 +221,34 @@ public final class AppEnvironment: ObservableObject {
             try builder.rebuild(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             try refreshToday()
+            try writeRollups()
             try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
             writeDiagnosticsSnapshot()
         } catch {
             logger.error("pipeline pass failed", ["error": "\(error)"])
             status = .attention("pipeline error")
+        }
+    }
+
+    /// Persist the daily rollup — the dashboard's and the context-switching metrics' only source.
+    ///
+    /// `RecapAssembler.writeRollup` is the sole writer of `daily_rollups`, and until this call site
+    /// existed its only callers in the entire tree were three unit tests. The metrics shipped in
+    /// `bf5463f` computed correctly and were persisted by nobody, so the table sat at 0 rows while
+    /// 3,669 sessions accumulated. Nothing surfaced it, because a job that is never invoked cannot
+    /// log a failure.
+    ///
+    /// Yesterday is re-rolled alongside today because the pipeline timer only ever knows about the
+    /// current day: whatever the last pass before midnight computed would otherwise be frozen as
+    /// yesterday's permanent record, missing its final minutes. Re-rolling is idempotent —
+    /// `upsertRollup` keys on the day.
+    private func writeRollups() throws {
+        let assembler = RecapAssembler(db: db, config: config,
+                                       selfPersonId: (try? db.selfPerson())?.id)
+        for daysAgo in 0...1 {
+            let date = Date().addingTimeInterval(-Double(daysAgo) * 86_400)
+            let (from, to) = Self.dayBounds(for: date, timeZone: timeZone)
+            _ = try assembler.writeRollup(day: Self.dayString(date, timeZone), from: from, to: to)
         }
     }
 

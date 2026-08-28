@@ -119,8 +119,24 @@ degrades **silently** to URL + title only ([reference/chrome-scripting.md](refer
 2. No restart needed. TidyTime detects the toggle state on next capture.
 
 **Secret:** none.
-**Verify:** `make doctor` → Chrome JS = `ok` (the app runs a benign `execute javascript "1"` probe
-and expects `"1"` back; a `turned off` error means the toggle is still off).
+**Verify:** open the app's **doctor** view (or `make diagnose`) and look for
+**Chrome JavaScript (Apple Events)** = `ok`. The app runs a benign `execute javascript "1"` probe
+and expects `"1"` back; the row distinguishes the failure modes rather than just going quiet:
+
+| Row says | Meaning |
+|---|---|
+| `ok` | Working — page text is being captured. |
+| `off — Chrome's "Allow JavaScript from Apple Events" is unchecked` | The toggle above. Doctor shows the click-path. |
+| `blocked — Automation permission for Chrome is denied` | Fix the **Automation (Chrome)** row first; this probe cannot run until Apple Events reach Chrome. |
+| `Chrome not running` | Normal. Open Chrome and the row updates. |
+
+> **Note:** `make doctor` only prints the on-disk paths. The permission rows come from the running
+> app (macOS reports TCC status per binary, so a CLI asking would answer for itself). Use the app's
+> doctor view, or `make diagnose` which reads the snapshot the app writes.
+
+**If this row is not `ok`, `page_snapshots` stays at 0 while everything else looks healthy** —
+URL and title capture does not need the toggle, so activity samples keep accumulating normally.
+That exact split (tens of thousands of samples, zero snapshots) is the signature of this setting.
 
 ---
 
@@ -381,22 +397,24 @@ its absence is intentional. `make doctor` prints Screen Recording = "not request
 
 ## Final acceptance — the whole surface at a glance
 
-Run `make doctor` (or open the in-app doctor view). A correctly set-up machine shows:
+Open the in-app **doctor** view (or run `make diagnose`, which reads the snapshot the app writes —
+`make doctor` prints only the on-disk paths, because TCC status is per-binary and a CLI would report
+its own). A correctly set-up machine shows:
 
-| Item | Expected | Set in step |
-|---|---|---|
-| Accessibility | `ok` | 1 |
-| Automation → Chrome | `ok` | 2 |
-| Automation → System Events | `ok` | 2 |
-| Chrome "Allow JavaScript from Apple Events" | `ok` | 3 |
-| Notifications | `authorized` | 4 |
-| Apple Intelligence (on-device rung) | available *(optional)* | 5 |
-| Productive token + org id | resolves `person_id` | 6 |
-| Fathom key | `GET /meetings` → 200 | 7 |
-| Slack `xoxp-…` token | `auth.test` → your `user_id` | 8 |
-| Google refresh token | `events.list` → 200 | 9 |
-| Fireworks + Anthropic keys | first `ai_calls` row (Phase 6) | 10 |
-| Screen Recording | "not requested" | 11 |
+| Item | Doctor row | Expected | Set in step |
+|---|---|---|---|
+| Accessibility | `Accessibility` | `granted` | 1 |
+| Automation → Chrome | `Automation (Chrome)` | `granted` | 2 |
+| Automation → System Events | `Automation (System Events)` | `granted` | 2 |
+| Chrome "Allow JavaScript from Apple Events" | `Chrome JavaScript (Apple Events)` | `ok` | 3 |
+| Notifications | `Notifications` | `granted` | 4 |
+| Apple Intelligence (on-device rung) | — | available *(optional)* | 5 |
+| Productive token + org id + slug | — | resolves `person_id` | 6 |
+| Fathom key | — | `GET /meetings` → 200 | 7 |
+| Slack `xoxp-…` token | — | `auth.test` → your `user_id` | 8 |
+| Google refresh token | — | `events.list` → 200 | 9 |
+| Fireworks + Anthropic keys | — | first `ai_calls` row (Phase 6) | 10 |
+| Screen Recording | `Screen Recording` | "not requested (by design — G3)" | 11 |
 
 All secrets are in the Keychain (guardrail [G6](guardrails.md#g6--secrets-live-in-the-keychain-only));
 `config.json` holds only non-secret settings and is gitignored. Grants survive rebuilds because the

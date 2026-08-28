@@ -1055,3 +1055,84 @@ Rate limits themselves re-verified against Fathom's live docs and **unchanged**:
 resolved (it does not). Open item **A1 resolved**: API access is confirmed working — the key exists
 and the endpoint answers. Worth stating plainly that A1 being green never implied ingest was
 working; `meetings` sat at 0 for 33 days with a perfectly good key.
+
+### 5a. `page_snapshots` = 0 — environmental cause, but a real code defect underneath
+
+**The cause is the one that was guessed: Chrome's "Allow JavaScript from Apple Events" is off.**
+Proved, not assumed. Chrome persists it as `allow_javascript_apple_events` (string extracted from
+the installed Chrome Framework binary); Chromium writes only non-default pref values, and the key
+is absent from Local State and from **all** profile `Preferences`/`Secure Preferences` files — so it
+has never been enabled in any profile.
+
+Two independent confirmations of the mechanism:
+- `activity_samples` holds 34,586 Chrome rows **with URLs**. The URL/title path (`activeTab()`)
+  uses plain scripting terms and needs only Automation; page text needs `execute javascript`, which
+  the toggle gates. Automation is clearly granted. That split is the signature.
+- `sqlite_sequence` has rows for `activity_samples`, `sessions` and `slack_messages` but **none for
+  `page_snapshots`**. SQLite creates that row on the first successful insert into an AUTOINCREMENT
+  table and never removes it on DELETE — so the table has never had a single successful insert in
+  the database's entire life. That rules out retention having eaten the rows, without argument.
+
+Everything else was ruled out with evidence: no code gate (every capture default is permissive and
+`killSwitches.chrome` is never even read); the content tick fires (the detection tick provably does,
+they are scheduled together, and `poll()` also force-fires content on every page change);
+`git diff 43ca776..HEAD -- Sources/TidyCapture` is empty, so it is not stale-build-only.
+
+**But "setup-doc gap, not a code bug" is the wrong call, and I'm disagreeing with the brief here
+deliberately.** The instruction was to handle it as a doc gap if it turned out to be the toggle. It
+is the toggle — and there is no doc to write. `docs/permissions-setup.md` §3 already documents the
+exact View → Developer click-path, correctly, and has all along. The gap is on the other side:
+
+- That same section tells the user to **verify** with `make doctor` → Chrome JS = `ok`, and the
+  final acceptance table lists the row. **No such row existed.** `PermissionInspector.statuses()`
+  never emitted it and `DiagnosticsAssembler`'s allow-list never parsed it. A documented
+  verification step the user was structurally unable to perform.
+- Phase 1's acceptance criteria require "…`page_snapshots` gains no rows, **and `doctor` reports the
+  degraded state**" and "degrades silently to URL+title on any failure **and surfaces the state in
+  `doctor`**". Two thirds shipped; the reporting clause never did. A failing acceptance criterion is
+  a code defect, not a documentation one.
+
+So: the user's action is still to flip the Chrome toggle — that is the only way rows will ever
+appear — but the code owed a way to *find that out*. Shipped:
+
+- A `Chrome JavaScript (Apple Events)` Doctor row, driven by the existing (previously caller-less)
+  `javaScriptFromAppleEventsEnabled()` probe, now classified into distinct outcomes: `ok`,
+  toggle-off, automation-denied, not-determined, Chrome-not-running. The classifier is a pure
+  function in `TidyCapture` so it is unit-testable without AppleScript. Cached at 15s like
+  `notificationStatus` — Doctor refreshes every 3s and a synchronous AppleScript round-trip on the
+  main thread must not run at that rate.
+- The key added to `DiagnosticsAssembler`'s `known` list, so it survives the render → parse
+  round-trip the `tidytime-doctor` CLI performs (pinned by test — a key missing there is silently
+  dropped).
+- A troubleshooting tip with the literal click-path, which also tells the user this is a Chrome
+  setting and **not** something to hunt for in System Settings. When Automation is the real blocker,
+  the tip points at that row instead of sending the user to flip a toggle that would not help.
+- `document.body.innerText` → `document.body ? document.body.innerText : ''`. The bare form throws
+  on `chrome://`, the PDF viewer and blank tabs, and a thrown script was indistinguishable from the
+  toggle being off — those pages were poisoning the diagnosis.
+- `PermissionInspector` no longer hard-crashes outside an app bundle.
+  `UNUserNotificationCenter.current()` raises an **uncatchable** ObjC exception when the process has
+  no `.app` bundle; the guard is on the bundle shape, not its identifier, because a test runner
+  reports an identifier while its `bundleURL` is a plain directory. An inspector that crashes
+  outside an app bundle is unusable by exactly the tooling that most needs it.
+
+`grep jsEnabled Tests/` previously matched nothing — the fake adapter modelled this failure exactly
+and no test used it. It does now.
+
+### 5b. `daily_rollups` = 0 — the job was never invoked
+
+`RecapAssembler.writeRollup` is the **only** writer of `daily_rollups`, and its only callers in the
+entire tree were three unit tests. Zero call sites in `App/` or any `Sources/` target.
+`AppEnvironment.runPipelineOnce()` — the 300s batch pass — did exactly four things: rebuild
+sessions, classify the day, refresh the recap, purge retention. No rollup.
+
+So the context-switching metrics from `bf5463f` computed correctly and were persisted by nobody.
+The table sat at 0 while 3,669 sessions accumulated. Nothing surfaced it, because **a job that is
+never invoked cannot log a failure** — there is no error, no `sync_state` row, no Doctor line. The
+tests passed because they called the method directly, which is precisely how the gap survived.
+
+Fixed with one call site in `runPipelineOnce()`, plus one thing that is not obvious: **yesterday is
+re-rolled alongside today.** The timer only ever knows about the current day, so without it
+yesterday's row is frozen at whatever the last pre-midnight pass computed and permanently loses its
+final minutes. `upsertRollup` keys on the day, so re-rolling is idempotent — pinned by a test that
+runs four passes and asserts exactly two rows.

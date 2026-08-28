@@ -1,5 +1,6 @@
 import Foundation
 import TidyCore
+import TidyCapture
 
 /// Plain-language troubleshooting for every non-green Doctor row.
 ///
@@ -68,6 +69,28 @@ public enum DoctorTips {
                 "Still says “not granted”? The list may contain a leftover row from an older copy of TidyTime. Select TidyTime in System Settings and remove it with the − (minus) button — just switching it off is not enough — then relaunch TidyTime and grant it again.",
                 "If the permission keeps disappearing every time the app updates, check the “Code signature” row above — an unstable signature makes macOS forget grants.",
             ], settingsPane: "Privacy_Accessibility")
+
+        case ChromeJavaScriptProbe.statusKey:
+            if status == ChromeJavaScriptProbe.ok { return nil }
+            if status == ChromeJavaScriptProbe.notRunning {
+                return TroubleshootingTip(steps: [
+                    "This is normal — TidyTime can’t check this while Chrome is closed.",
+                    "Open Chrome and this row will update by itself within a few seconds.",
+                ])
+            }
+            if status == ChromeJavaScriptProbe.automationDenied || status == ChromeJavaScriptProbe.notDetermined {
+                return TroubleshootingTip(steps: [
+                    "Fix the “Automation (Chrome)” row above first — this check can’t run until TidyTime is allowed to talk to Chrome.",
+                    "Once that says granted, come back to this row.",
+                ], settingsPane: "Privacy_Automation")
+            }
+            return TroubleshootingTip(steps: [
+                "In Google Chrome, open the menu bar → View → Developer.",
+                "Click “Allow JavaScript from Apple Events” so it shows a checkmark. (The Developer submenu is near the bottom of the View menu.)",
+                "No restart needed — TidyTime picks it up on the next capture, within about 20 seconds.",
+                "This is a Chrome setting, not a macOS permission, so it will not appear in System Settings.",
+                "Until it is on, TidyTime still records which pages you visited (URL and title) — it just can’t read the page text, so the “page snapshots” count stays at zero.",
+            ])
 
         case "Automation (Chrome)", "Automation (System Events)":
             let target = name.contains("Chrome") ? "Google Chrome" : "System Events"
