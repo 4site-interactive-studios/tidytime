@@ -1564,3 +1564,65 @@ was the useful part.
 
 Also validated by the measurement: the ambiguity guard rejects **560 of 1,746 tokens (32%)**. That
 is a lot of confident wrong attributions not made.
+
+### 3. Exact task attribution from URLs — and the review finding that invalidated stage 2's claim
+
+**A post-push review found that the 1,185 keyword signals stage 2 minted were inert.** Nothing could
+read them. `rung1` looked signals up by whole string — `signalsByValue["youtube.com"]` — while a
+`keyword` signal's value is a name *token* like `engrid`. A hostname can never equal a token, Slack
+context keys carry a conversation **id** rather than a channel name, and `app:` context keys were not
+collected at all. So the arm that fires (`url_host`/`email_domain`) produced zero rows on a workspace
+where 0 of 687 companies carry a domain, and the arm that produced 1,185 rows could never be read.
+
+`classification-ladder.md` specified both arms all along — "context_key **(or dominant token set)**".
+Only the first had been built. I wired a bootstrap to a rung that could not consume its output, and
+the live rung breakdown said so plainly (47 classified, **all rung 2, zero rung 1**) — I reported that
+number and attributed it to missing domain signals rather than chasing why rung 1 was still dark.
+The measurable gain from stage 2 was **zero**; the 7 → 47 improvement came entirely from stage 1
+un-starving rung 2's candidate builder.
+
+Fixed by giving `rung1` a token arm. Deliberately more conservative than the exact-value arm: a
+hostname match is unambiguous evidence, a single word in a window title is weaker, so bootstrapped
+keyword hits score 0.82 against 0.85. A `user_confirmed` keyword keeps 0.97 — the user said so.
+**Disagreement returns nil rather than picking a winner**: the bootstrap guarantees a token maps to
+one client, but one session can contain tokens for two clients, and guessing there is the exact
+confident-wrong-answer this design exists to avoid.
+
+**The exact rung.** When a Productive task page is open its id is in the address bar — evidence, not
+inference. It runs ahead of signal matching and is the only path that sets `sessions.task_id`, which
+gap analysis needs to avoid re-suggesting logged time. It also fits this workspace specifically: the
+captured hosts are overwhelmingly *tools* (Slack, Productive, EN, BugHerd), so the documented
+`url_host → client` route resolves almost nothing.
+
+Two details worth keeping:
+- **Both URL shapes occur live** — `/task/18833587?taskActivityId=…` and `/tasks/task/18609405`.
+  Matching only the documented one loses real attributions.
+- **A filtered task list is not a task.** `/tasks?filter=<base64>` contains digits; scanning the raw
+  URL for a number would mint a confident wrong task id. The query string is stripped before parsing,
+  pinned by a test using the exact URL from the live data.
+
+URLs are read from `activity_samples`, not `page_snapshots`, so this works even with Chrome's
+"Allow JavaScript from Apple Events" toggle off.
+
+### 3a. The rest of the review
+
+- **Archived rows poisoned the vocabulary in both directions.** `db.companies()` returns every row.
+  An archived "Acme Health" beside a live "Acme Foundation" makes `acme` ambiguous and silently
+  suppresses the *live* client's own name; an archived-only client mints signals attributing today's
+  work to a dead one. Now filtered. This likely explains a chunk of the 560 "rejected" tokens I
+  reported as the guard working — some of it was data rot.
+- **A company-name token was pinned to an arbitrary project.** Client "Zenith" with projects "Zenith
+  Website" and "Newsletter Build" pinned every mention of the client's name to the website project.
+  A project id now rides along only when the token came from a *project* name.
+- **`time_entries` never asked for `project`,** which `PDMapper.timeEntry` reads — the same
+  never-asked mechanism the `include` fix exists to solve, one field over.
+- **A bootstrap throw could abort the whole pipeline pass**, skipping classification, rollups and
+  retention. Now `try?`, matching what `DayClassifier` already does for its own signal write.
+- **Numeric tokens** (`2018`, `101`, `40th`) passed the length floor and identify nothing — 12 of
+  1,185 minted signals. Now filtered.
+
+**Not acted on:** the review notes stage 1 multiplied rung-2's per-pass cost ~5× (candidates
+1,652 → 13,283, ~340 ms on the main actor every 300s) because a linked mirror finally lets
+`Classifier.init` build task candidates. That is the cost of the feature working, it is measured
+rather than guessed, and 340 ms per five minutes is not worth optimising before the pipeline does
+something with the result. Recorded so the next person sees it was a decision.

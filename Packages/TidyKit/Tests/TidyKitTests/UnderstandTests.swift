@@ -49,14 +49,30 @@ final class ClassifierTests: XCTestCase {
         XCTAssertEqual(result?.rung, 1)
     }
 
-    func testRung2LexicalMatch() throws {
+    /// Beta has no *domain* signal, so this used to fall through to rung-2 lexical scoring. It now
+    /// resolves at **rung 1** on the `keyword` signals the bootstrap mints from company names —
+    /// same answer, reached by a direct rule instead of scoring. Asserting rung 2 here would be
+    /// pinning the weaker path.
+    func testNameTokensResolveAtRungOne() throws {
         let db = try AppDatabase.inMemory(); try seed(db)
         let c = try Classifier.load(db)
-        // No domain signal for beta; match by title tokens.
         let session = Session(kind: "screen", startedAt: 0, endedAt: 100, durationSeconds: 100,
                               title: "Beta Foundation planning", contextKey: "app:com.apple.mail", createdAt: 0)
         let result = c.classify(session)
         XCTAssertEqual(result?.clientId, "beta")
+        XCTAssertEqual(result?.rung, 1)
+        XCTAssertEqual(result?.matchedSignalType, "keyword", "so the right rule gets strengthened")
+    }
+
+    /// Rung 2 is still reachable: a task title is not bootstrapped vocabulary, so a session that
+    /// only matches task words has no keyword signal to hit and falls through to lexical scoring.
+    func testRung2StillReachableViaTaskTitles() throws {
+        let db = try AppDatabase.inMemory(); try seed(db)
+        let c = try Classifier.load(db)
+        let session = Session(kind: "screen", startedAt: 0, endedAt: 100, durationSeconds: 100,
+                              title: "build the form", contextKey: "app:com.apple.mail", createdAt: 0)
+        let result = c.classify(session)
+        XCTAssertEqual(result?.clientId, "acme", "matched the task 'Build donation form'")
         XCTAssertEqual(result?.rung, 2)
     }
 

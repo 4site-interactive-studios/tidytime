@@ -70,7 +70,7 @@ final class ProductiveRelationshipTests: XCTestCase {
     func testEveryRelationshipEndpointSendsInclude() async throws {
         for (path, expected) in [("tasks", "project,assignee,task_list"),
                                  ("projects", "company"),
-                                 ("time_entries", "task,person,service")] {
+                                 ("time_entries", "task,person,service,project")] {
             XCTAssertEqual(LiveProductiveClient.includes[path], expected, path)
         }
         // Endpoints with no relationship we read must NOT pay for a sideload.

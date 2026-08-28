@@ -223,7 +223,10 @@ public final class AppEnvironment: ObservableObject {
             // this call existed that table had 0 rows — so rung 1 could never fire and only rung 2
             // lexical matching ever produced an attribution (15 of 3,890 sessions). Idempotent and
             // cheap; `insertSignalIfAbsent` never overwrites a user-confirmed rule.
-            _ = try EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970))
+            // `try?`: the vocabulary is best-effort. A throw here must not skip DayClassifier,
+            // the recap refresh, rollups and retention for the whole pass — the same reasoning
+            // DayClassifier already applies to its own signal write.
+            _ = try? EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970))
             _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             try refreshToday()
             try writeRollups()

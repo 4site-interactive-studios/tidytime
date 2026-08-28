@@ -226,7 +226,10 @@ public struct LiveProductiveClient: ProductiveClient {
     static let includes: [String: String] = [
         "tasks": "project,assignee,task_list",
         "projects": "company",
-        "time_entries": "task,person,service",
+        // `project` is here because PDMapper.timeEntry reads it — a time entry logged against a
+        // project with no task would otherwise keep a NULL project_id by the very mechanism this
+        // whole parameter exists to fix.
+        "time_entries": "task,person,service,project",
         // companies and people have no relationship we read.
     ]
 

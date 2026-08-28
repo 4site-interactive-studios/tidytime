@@ -51,8 +51,12 @@ public struct EntityBootstrap: Sendable {
         let prior = (try? db.syncState(Self.stateKey)) ?? nil
         // The cursor records the cache size the vocabulary was derived from, so a fresh Productive
         // sync re-derives immediately instead of waiting out the interval.
-        let companies = try db.companies()
-        let projects = try db.projects()
+        // Archived rows poison the vocabulary in BOTH directions: an archived "Acme Health"
+        // alongside a live "Acme Foundation" makes `acme` ambiguous, silently suppressing the LIVE
+        // client's own name — and an archived-only client mints signals that attribute today's work
+        // to a dead one. For an agency with 687 companies, archived rows are plausibly the majority.
+        let companies = try db.companies().filter { !$0.archived }
+        let projects = try db.projects().filter { !$0.archived }
         let fingerprint = "\(companies.count):\(projects.count)"
         if !force,
            let last = prior?.lastSuccessAt, now - last < Self.refreshInterval,
@@ -78,9 +82,14 @@ public struct EntityBootstrap: Sendable {
         var clientsByToken: [String: Set<String>] = [:]
         var projectsByToken: [String: Set<String>] = [:]
 
+        // Tracked separately from `projectsByToken` so a COMPANY-name token never inherits a
+        // project. "Zenith" the client owning projects "Zenith Website" and "Newsletter Build"
+        // would otherwise pin every mention of the client's name to the website project.
+        var companyNameTokens: Set<String> = []
         for c in companies where !c.name.isEmpty {
             for t in Tokenizer.tokens(c.name) {
                 clientsByToken[t, default: []].insert(c.id)
+                companyNameTokens.insert(t)
             }
         }
         for p in projects where !p.name.isEmpty {
@@ -99,7 +108,11 @@ public struct EntityBootstrap: Sendable {
             guard !Self.houseTokens.contains(token) else { continue }
             // Attach a project only when the token is unique to one project as well; otherwise the
             // signal still resolves the client, which is the more valuable half.
-            let projectId = projectsByToken[token]?.count == 1 ? projectsByToken[token]?.first : nil
+            // Numbers and ordinals lifted out of project names ("2018", "101", "40th") are noise,
+            // not vocabulary — they pass the length floor but identify nothing.
+            guard token.contains(where: \.isLetter), !token.allSatisfy(\.isNumber) else { continue }
+            let projectId = (!companyNameTokens.contains(token) && projectsByToken[token]?.count == 1)
+                ? projectsByToken[token]?.first : nil
             batch.append(EntitySignal(
                 signalType: "keyword", signalValue: token, clientId: clientId, projectId: projectId,
                 provenance: "bootstrapped", createdAt: now, updatedAt: now))
@@ -128,7 +141,11 @@ public struct DayClassifier: Sendable {
             let host = s.contextKey.flatMap { $0.hasPrefix("web:") ? String($0.dropFirst(4)) : nil }
             let pageTexts = (s.kind == "screen"
                 ? try? db.pageTexts(from: s.startedAt, to: s.endedAt, limit: 3, host: host) : nil) ?? []
-            if let c = classifier.classify(s, invitees: invitees, pageTexts: pageTexts) {
+            // URLs captured during the session. Read from `activity_samples`, so this works even
+            // when Chrome's "Allow JavaScript from Apple Events" toggle is off and page text is
+            // unavailable — the URL is recorded on every sample regardless.
+            let urls = (s.kind == "screen" ? try? db.urls(from: s.startedAt, to: s.endedAt) : nil) ?? []
+            if let c = classifier.classify(s, invitees: invitees, pageTexts: pageTexts, urls: urls) {
                 try db.classifySession(id: id, clientId: c.clientId, projectId: c.projectId, taskId: c.taskId,
                                        confidence: c.confidence, rung: c.rung, rationale: c.rationale, classifiedAt: now)
                 if let v = c.matchedSignalValue, let t = c.matchedSignalType {

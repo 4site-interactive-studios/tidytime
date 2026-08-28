@@ -48,6 +48,9 @@ public struct Classification: Sendable, Equatable {
 public struct Classifier: Sendable {
     private let signalsByValue: [String: [EntitySignal]]
     private let candidates: [LexicalCandidate]
+    /// Lookups for exact attribution — a task id read straight out of a URL needs no scoring.
+    private let tasksById: [String: PDTask]
+    private let projectsById: [String: PDProject]
 
     struct LexicalCandidate: Sendable {
         let clientId: String
@@ -63,6 +66,8 @@ public struct Classifier: Sendable {
 
         let companyById = Dictionary(companies.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let projectById = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.projectsById = projectById
+        self.tasksById = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var cands: [LexicalCandidate] = []
         for c in companies {
             cands.append(.init(clientId: c.id, projectId: nil, taskId: nil, specificity: 0,
@@ -88,14 +93,70 @@ public struct Classifier: Sendable {
                    tasks: try db.tasks(), signals: try db.allSignals())
     }
 
-    /// Classify a session. `invitees` are supplied for meeting sessions; `pageTexts` optionally add
-    /// lexical evidence. Returns nil when nothing resolves confidently.
-    public func classify(_ session: Session, invitees: [MeetingInvitee] = [], pageTexts: [String] = []) -> Classification? {
+    /// Classify a session. `invitees` are supplied for meeting sessions; `pageTexts` and `urls`
+    /// optionally add evidence. Returns nil when nothing resolves confidently.
+    public func classify(_ session: Session, invitees: [MeetingInvitee] = [],
+                         pageTexts: [String] = [], urls: [String] = []) -> Classification? {
+        if let exact = rungExactTask(urls) { return exact }
         if let r1 = rung1(session, invitees: invitees) { return r1 }
         return rung2(session, invitees: invitees, pageTexts: pageTexts)
     }
 
+    // Rung 1 (exact) — the task was open in the browser, so its id is in the address bar.
+    //
+    // This outranks signal matching because it is evidence, not inference: no vocabulary, no
+    // tokens, no scoring. It also matters disproportionately on a workspace like this one, where
+    // the captured hosts are tools (Slack, Productive, EN, BugHerd) rather than client domains, so
+    // the documented `url_host -> client` route resolves almost nothing.
+    //
+    // It is the ONLY path that sets `task_id`, which gap analysis needs to avoid re-suggesting time
+    // the user already logged.
+    private func rungExactTask(_ urls: [String]) -> Classification? {
+        for url in urls {
+            guard let id = Classifier.productiveTaskId(in: url), let task = tasksById[id] else { continue }
+            let project = task.projectId.isEmpty ? nil : projectsById[task.projectId]
+            // A task whose project we cannot resolve to a client is not attributable — do not
+            // invent an empty client id, which is what an unlinked mirror produced for weeks.
+            guard let clientId = project?.companyId, !clientId.isEmpty else { continue }
+            return Classification(
+                clientId: clientId, projectId: task.projectId, taskId: task.id,
+                confidence: 0.97, rung: 1,
+                rationale: "task open in Productive (#\(task.taskNumber.map(String.init) ?? task.id))",
+                matchedSignalType: nil, matchedSignalValue: nil)
+        }
+        return nil
+    }
+
+    /// Extract a Productive task id from a web-app URL.
+    ///
+    /// Both shapes occur live and both must match — captured samples contain
+    /// `/2650-acme/task/18833587?taskActivityId=…` **and** `/2650-acme/tasks/task/18609405`:
+    ///
+    ///     app.productive.io/<org-slug>/task/<id>
+    ///     app.productive.io/<org-slug>/tasks/task/<id>
+    ///
+    /// Deliberately NOT matched: `/tasks?filter=<base64>`, a filtered task LIST. That base64 blob
+    /// contains digits and would otherwise yield a bogus id.
+    public static func productiveTaskId(in url: String) -> String? {
+        guard url.contains("productive.io") else { return nil }
+        // Strip query and fragment first so a filter blob can never be scanned for digits.
+        let path = url.split(separator: "?").first.map(String.init)?
+            .split(separator: "#").first.map(String.init) ?? url
+        let parts = path.split(separator: "/").map(String.init)
+        guard let i = parts.lastIndex(of: "task"), i + 1 < parts.count else { return nil }
+        let candidate = parts[i + 1]
+        guard !candidate.isEmpty, candidate.allSatisfy(\.isNumber) else { return nil }
+        return candidate
+    }
+
     // Rung 1 — deterministic signal rules.
+    //
+    // Two arms, because signals come in two shapes and matching only the first made the second
+    // **unreadable**: exact values (`url_host`, `email_domain`) are compared whole, while `keyword`
+    // signals are name TOKENS and can never equal a hostname or a Slack conversation id. Bootstrapping
+    // 1,185 keyword rows against a rung that only did whole-string lookup produced rows nothing could
+    // consume. `docs/architecture/classification-ladder.md` specifies both arms — "context_key **(or
+    // dominant token set)**" — and only the first had been built.
     private func rung1(_ session: Session, invitees: [MeetingInvitee]) -> Classification? {
         var values: [String] = []
         if let ck = session.contextKey {
@@ -106,7 +167,7 @@ public struct Classifier: Sendable {
 
         let matches = values.flatMap { v in (signalsByValue[v] ?? []).map { (v, $0) } }
             .filter { $0.1.clientId != nil }
-        guard !matches.isEmpty else { return nil }
+        guard !matches.isEmpty else { return rung1Keyword(session) }
         let best = matches.max { a, b in
             (a.1.isAuthoritative ? 1 : 0, a.1.weight) < (b.1.isAuthoritative ? 1 : 0, b.1.weight)
         }!
@@ -116,6 +177,49 @@ public struct Classifier: Sendable {
             confidence: sig.isAuthoritative ? 0.97 : 0.85, rung: 1,
             rationale: "matched \(sig.signalType) '\(best.0)'",
             matchedSignalType: sig.signalType, matchedSignalValue: best.0)
+    }
+
+    /// Rung 1, token arm: a `keyword` signal matched against the session's own words.
+    ///
+    /// Deliberately more conservative than the exact-value arm. A hostname match is unambiguous
+    /// evidence; a single word in a window title is weaker, so bootstrapped keyword hits get 0.82
+    /// rather than 0.85. A `user_confirmed` keyword is different — the user said so — and keeps 0.97.
+    ///
+    /// **Disagreement returns nil rather than picking a winner.** The bootstrap already guarantees a
+    /// token maps to one client, but a session can contain tokens for two different clients (an
+    /// email listing both). Guessing there is exactly the confident-wrong-answer this whole design
+    /// avoids; falling through to rung 2, which has its own ambiguity guard, is correct.
+    private func rung1Keyword(_ session: Session) -> Classification? {
+        var query = Tokenizer.tokenSet([session.title])
+        if let ck = session.contextKey, ck.hasPrefix("web:") {
+            query.formUnion(Tokenizer.tokens(String(ck.dropFirst(4))))
+        }
+        guard !query.isEmpty else { return nil }
+
+        let hits = query.flatMap { token in
+            (signalsByValue[token] ?? [])
+                .filter { $0.signalType == "keyword" && $0.clientId != nil }
+                .map { (token, $0) }
+        }
+        guard !hits.isEmpty else { return nil }
+
+        // A user-confirmed rule outranks everything and settles disagreement by itself.
+        if let confirmed = hits.filter({ $0.1.isAuthoritative })
+            .max(by: { $0.1.weight < $1.1.weight }) {
+            return Classification(
+                clientId: confirmed.1.clientId!, projectId: confirmed.1.projectId, taskId: nil,
+                confidence: 0.97, rung: 1,
+                rationale: "you confirmed '\(confirmed.0)' means this client",
+                matchedSignalType: confirmed.1.signalType, matchedSignalValue: confirmed.0)
+        }
+
+        guard Set(hits.map { $0.1.clientId! }).count == 1 else { return nil }
+        let best = hits.max(by: { $0.1.weight < $1.1.weight })!
+        return Classification(
+            clientId: best.1.clientId!, projectId: best.1.projectId, taskId: nil,
+            confidence: 0.82, rung: 1,
+            rationale: "matched keyword '\(best.0)'",
+            matchedSignalType: best.1.signalType, matchedSignalValue: best.0)
     }
 
     // Rung 2 — lexical matching against the Productive cache.

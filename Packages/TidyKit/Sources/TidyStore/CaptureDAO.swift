@@ -63,6 +63,26 @@ extension AppDatabase {
         }
     }
 
+    /// Distinct URLs captured during a window, newest first.
+    ///
+    /// Feeds exact task attribution: when a Productive task page is open, the task id is right there
+    /// in the address bar. That is the strongest evidence available on this workspace — the captured
+    /// hosts are overwhelmingly *tools* (Slack, Productive, EN, BugHerd), not client-branded
+    /// domains, so the designed `url_host -> client` path resolves almost nothing.
+    ///
+    /// Reads `activity_samples`, not `page_snapshots`: the URL is recorded on every sample, whereas
+    /// page text needs Chrome's "Allow JavaScript from Apple Events" toggle. This works even when
+    /// that toggle is off.
+    public func urls(from start: Int64, to end: Int64, limit: Int = 40) throws -> [String] {
+        try writer.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT url FROM activity_samples
+                WHERE started_at >= ? AND started_at < ? AND url IS NOT NULL AND url != ''
+                ORDER BY started_at DESC LIMIT ?
+                """, arguments: [start, end, limit])
+        }
+    }
+
     /// Most recent snapshot hash for a URL, used to skip storing duplicate page text.
     public func latestSnapshotHash(url: String) throws -> String? {
         try writer.read { db in
