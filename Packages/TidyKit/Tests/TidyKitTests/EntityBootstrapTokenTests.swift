@@ -51,6 +51,20 @@ final class EntityBootstrapTokenTests: XCTestCase {
         XCTAssertGreaterThan(created, 0)
     }
 
+    /// The cross-source case: a token in company A's NAME and in a project belonging to company B.
+    /// `clientsByToken` must union both sources, or a token would look unique per-source and get
+    /// minted against whichever the loop saw.
+    func testTokenSharedBetweenACompanyNameAndAnotherClientsProjectIsRejected() throws {
+        let db = try AppDatabase.inMemory()
+        try seed(db,
+                 companies: [("c1", "Horizon Foundation", nil), ("c2", "Beta Trust", nil)],
+                 projects: [("p1", "c2", "Beta Horizon Rebuild")])
+        try EntityBootstrap().run(db, now: 100)
+        XCTAssertNil(try signals(db)["horizon"],
+                     "shared across a company name and another client's project — identifies neither")
+        XCTAssertEqual(try signals(db)["beta"]?.clientId, "c2", "unshared tokens still mint")
+    }
+
     /// A token unique to one client AND one project carries the project too; unique to the client
     /// but spread across projects still resolves the client, which is the more valuable half.
     func testProjectIsAttachedOnlyWhenUnambiguous() throws {
