@@ -174,19 +174,34 @@ public struct DecisionRecorder: Sendable {
         public init(type: String, value: String) { self.type = type; self.value = value } }
 
     @discardableResult
+    /// `resolve` maps the id the caller is holding onto the row that represents the same work now;
+    /// the recap supplies it because only the caller knows the card's attribution. Nil-returning is
+    /// allowed and means "that work is no longer on this day".
     public func record(suggestionId: Int64?, action: String, clientId: String? = nil,
                        projectId: String? = nil, taskId: String? = nil, note: String? = nil,
-                       confirmSignal: SignalRef? = nil) throws -> Int64 {
+                       confirmSignal: SignalRef? = nil,
+                       resolve: ((Int64?) -> Int64?)? = nil) throws -> Int64 {
         let now = Int64(clock.now.timeIntervalSince1970)
+
+        // The recap regenerates its pending suggestions every 300s, so a card that has been on
+        // screen for one pipeline pass holds an id that no longer exists. `decisions.suggestion_id`
+        // is a real foreign key with enforcement ON, so inserting against a dead id threw — and the
+        // view's catch logged it and moved on, which meant "Log it ✓" silently did nothing on any
+        // card older than five minutes. The user's most important action, failing invisibly.
+        //
+        // Drop the dangling reference rather than the decision: the decision is the durable record
+        // and its attribution (client/project/task) is what the learning loop reads. A missing
+        // suggestion id costs a join, not the meaning.
+        let liveId = resolve?(suggestionId) ?? suggestionId
         let decisionId = try db.insertDecision(Decision(
-            suggestionId: suggestionId, action: action, clientId: clientId, projectId: projectId,
+            suggestionId: liveId, action: action, clientId: clientId, projectId: projectId,
             taskId: taskId, note: note, createdAt: now))
         if let sig = confirmSignal, let clientId {
             try db.strengthenSignal(type: sig.type, value: sig.value, clientId: clientId,
                                     projectId: projectId, provenance: "user_confirmed", now: now)
         }
-        if let suggestionId {
-            try db.updateSuggestionStatus(id: suggestionId, status: Self.status(for: action), now: now)
+        if let liveId {
+            try db.updateSuggestionStatus(id: liveId, status: Self.status(for: action), now: now)
         }
         return decisionId
     }

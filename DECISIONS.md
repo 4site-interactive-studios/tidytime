@@ -1756,3 +1756,90 @@ The chain that had to be repaired in order, each link dead on its own:
 `include=` → linked mirror → vocabulary → readable signals → attribution → suggestions → decisions
 → confirmed signals. Six of the twenty-two orphaned jobs are now wired; the rest are Phase 6 and
 deliberately still dark.
+
+---
+
+## Alpha handoff QC — findings and fixes (2026-08-28)
+
+A seven-dimension QC review ahead of handing the alpha to other people. All seven came back
+"not-ready"; none of it was architectural. Fixes below, in the order they were resolved.
+
+### The repo was shipping 931 lines lighter than the author's machine
+
+`.gitignore` had an unanchored `build/`, which also matched `docs/build/`. Four setup guides —
+`signing-and-tcc.md`, `environment-setup.md`, `testing-strategy.md`, `xcodegen-spec.md` — were never
+committed in 73 commits. That is the source of all 26 broken doc links, of `make lint` being red on
+a fresh clone, and of the signing guide being undeliverable at the step `RUNNING.md` labels
+do-this-first. Anchored to `/build/`.
+
+The link checker was also walking into `.claude/worktrees/` — nested checkouts of this same repo at
+other commits — double-counting files and reporting links broken that resolve fine on the branch
+being checked. **`make lint` now passes for the first time.**
+
+### Two bugs I shipped this afternoon, both live
+
+**"Log it ✓" silently failed on any card older than one pipeline pass.** The recap regenerates
+pending suggestions every 300s, so a card on screen holds a dead id; `decisions.suggestion_id` is a
+real foreign key with enforcement on, so the insert threw and the view's catch logged it and moved
+on. The product's primary action, failing invisibly, on every card older than five minutes.
+
+Fixed by resolving a stale id to the row representing the same work now. Note the first fix I wrote
+was wrong: dropping the dangling reference stopped the throw but left the suggestion `pending`, so
+the card would have come back — the decision has to re-point at the live row, not just tolerate a
+dead one.
+
+**Accepting a card wrote a permanent, unremovable bad rule.** `signalToConfirm` excluded `app:`
+context keys but not tool *hosts*. Live, the only two confirmable cards were backed by
+`calendar.google.com` and `youtube.com` — so one click on "Log it ✓" would have written
+`url_host youtube.com -> <that client>` with `user_confirmed` provenance, which outranks everything
+forever and has no removal path in the UI. Added a tool-host list matched on registrable suffix.
+Slack conversations stay confirmable: a channel belongs to one piece of work even though
+`slack.com` does not.
+
+### The "don't undo the user" guard covered 4 of 14 cards
+
+`settledKey` was built at the group level, before the engine knows whether a group becomes a
+`session`, a `new_task`, or gets rolled into a `pool` — and it guessed, never producing `"pool"`.
+Live, 10 of 14 suggestions are pools, so a tossed pool came back every 300s. Now keyed on
+`Suggestion.workKey` (client|project|task, no kind): the same work returning as a different kind is
+still the same work.
+
+### 98% of the classification vocabulary was dead work
+
+`Classifier.init` built lexical candidates from every task and project with no status filter. On
+this workspace that is **11,433 closed tasks of 11,631, and 877 archived projects of 965**. Matching
+today's window titles against a decade of finished work is what produced cards like "CI:60 Zoom
+Doom". I had filtered archived rows in `EntityBootstrap` this afternoon and not in the classifier —
+half a fix, which is worse than none because the numbers looked like they improved.
+
+Closed tasks remain reachable **by id**, so the exact-URL rung still attributes an old task open in
+the browser. Evidence beats status; only the fuzzy path needed narrowing.
+
+### The guardrails did not guard
+
+The QC pass added a POST-to-Productive time-entry writer, a ScreenCaptureKit screen reader, and
+deleted the `SuggestionEngine` call site — **all three passed 401/401**. The G1 test only covered
+`ProductiveRequestBuilder.build`, so a raw `URLRequest` bypassed it; the G3 test scanned one
+directory for one symbol.
+
+`GuardrailEnforcementTests` now covers the whole tree. Two things worth recording about writing it:
+
+- My first version failed on legitimate code — the Google OAuth token exchange and the AI providers
+  both POST, and `CredentialCatalog` shows users the literal string `xoxp-…`. **G1 is "no writes to
+  Productive", not "no POST anywhere."** A guard that cries wolf gets deleted, so it is now scoped to
+  files that talk to Productive, plus a structural check that the client only reaches the network
+  through the read-only builder.
+- The credential grep requires a prefix *followed by twelve token-ish characters*, so placeholder
+  copy stays legal and a real leaked token does not.
+
+It also pins that the six pipeline jobs have call sites — the class defect behind five separate bugs
+today, and the one thing no test could previously notice, because a job that is never invoked cannot
+fail.
+
+### CI
+
+There was none, ever. `.github/workflows/ci.yml` runs `make test` (suite + guardrails) and
+`make lint` on push and PR, plus `make typecheck-app` in a separate job — the app target cannot be
+*built* in CI without a `DEVELOPMENT_TEAM`, and an ad-hoc signature would defeat G7 anyway, but it
+can be type-checked, which catches the SwiftUI/availability breakage package tests never see.
+All three targets verified green locally before committing.

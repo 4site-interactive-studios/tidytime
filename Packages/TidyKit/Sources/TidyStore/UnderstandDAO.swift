@@ -100,6 +100,21 @@ extension AppDatabase {
         }
     }
 
+    /// Resolve a possibly-stale suggestion id to the row that represents the same work NOW.
+    ///
+    /// The recap regenerates pending suggestions every 300s, so a card on screen can outlive the
+    /// row behind it. Returning the id unchanged when it still exists, and otherwise the current row
+    /// with the same **attribution identity**, is what makes "Log it ✓" and "Toss" work on a card
+    /// the user has been looking at for more than one pass. Returning nil only when the work itself
+    /// is gone from the day.
+    public func liveSuggestionId(matching stale: Int64, day: String, attributionKey: String) throws -> Int64? {
+        try writer.read { db in
+            if try Suggestion.filter(sql: "id = ?", arguments: [stale]).fetchCount(db) > 0 { return stale }
+            return try Suggestion.filter(sql: "day = ?", arguments: [day]).fetchAll(db)
+                .first { Suggestion.attributionKey($0) == attributionKey }?.id
+        }
+    }
+
     /// Clear only the suggestions the user has NOT acted on, and return the keys of the ones kept.
     ///
     /// The pipeline regenerates every 300s. `clearDay` deletes and reinserts everything, so a
@@ -118,7 +133,8 @@ extension AppDatabase {
             try Suggestion.filter(sql: "day = ? AND status = 'pending'", arguments: [day]).deleteAll(db)
             // Pools are pure scratch for the rebuild and carry no user decision.
             try Pool.filter(sql: "day = ?", arguments: [day]).deleteAll(db)
-            return Set(decided.map(Suggestion.attributionKey))
+            // Keyed on the WORK, not the kind — see Suggestion.workKey.
+            return Set(decided.map(\.workKey))
         }
     }
 

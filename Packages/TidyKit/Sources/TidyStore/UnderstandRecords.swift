@@ -82,6 +82,18 @@ public struct Suggestion: Codable, FetchableRecord, MutablePersistableRecord, Se
         [s.kind, s.clientId ?? "", s.projectId ?? "", s.taskId ?? ""].joined(separator: "|")
     }
     public var attributionKey: String { Suggestion.attributionKey(self) }
+
+    /// Identity of the WORK, ignoring how it happens to be presented.
+    ///
+    /// Used for "the user already settled this — do not re-propose it". `kind` must not be part of
+    /// that key: the engine decides at the end of a pass whether a group becomes a `session`, a
+    /// `new_task` proposal, or gets rolled into a `pool`, and the same underlying work can come back
+    /// as a different kind next pass. Keying on kind meant a tossed pool reappeared every 300s —
+    /// live, that was 10 of 14 cards.
+    public static func workKey(clientId: String?, projectId: String?, taskId: String?) -> String {
+        [clientId ?? "", projectId ?? "", taskId ?? ""].joined(separator: "|")
+    }
+    public var workKey: String { Suggestion.workKey(clientId: clientId, projectId: projectId, taskId: taskId) }
     enum CodingKeys: String, CodingKey {
         case id, day, kind, clientId = "client_id", projectId = "project_id", taskId = "task_id"
         case proposedTaskTitle = "proposed_task_title", proposedTaskDescription = "proposed_task_description"

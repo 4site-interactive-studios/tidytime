@@ -101,9 +101,11 @@ public struct SuggestionEngine: Sendable {
         var pools: [String: Group] = [:]   // keyed by project/client for sub-threshold work
 
         for (_, g) in groups {
-            // Already settled by the user this day — do not re-propose it.
-            let settledKey = [g.taskId != nil ? "session" : (g.projectId != nil ? "new_task" : "new_task"),
-                              g.clientId, g.projectId ?? "", g.taskId ?? ""].joined(separator: "|")
+            // Already settled by the user this day — do not re-propose it. Keyed on the work, not
+            // the kind: at this point the engine has not yet decided whether this group becomes a
+            // session, a new-task proposal, or part of a pool, and guessing produced a key that
+            // could never match a tossed pool.
+            let settledKey = Suggestion.workKey(clientId: g.clientId, projectId: g.projectId, taskId: g.taskId)
             if decided.contains(settledKey) { summary.skippedAlreadyDecided += 1; continue }
             let rawMinutes = g.seconds / 60
             if rawMinutes >= standaloneThresholdMinutes {

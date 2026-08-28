@@ -61,13 +61,30 @@ public struct Classifier: Sendable {
         let label: String
     }
 
+    /// Live vocabulary only.
+    ///
+    /// On a real agency workspace **11,433 of 11,631 tasks are closed and 877 of 965 projects are
+    /// archived** — 98% and 91%. Matching today's window titles against a decade of finished work
+    /// is what produced cards like "CI:60 Zoom Doom": a single common word ("zoom", "page", "app")
+    /// hitting a task closed years ago. Dead work cannot be worked on today, so it is not evidence.
+    ///
+    /// `EntityBootstrap` already filtered archived rows when minting signals; this is the same rule
+    /// applied to the lexical candidates, which is where the bulk of the noise actually came from.
+    /// A closed task is still resolvable by the exact-URL rung, which does not use this list —
+    /// opening an old task in the browser is unambiguous evidence regardless of its status.
     public init(companies: [PDCompany], projects: [PDProject], tasks: [PDTask], signals: [EntitySignal]) {
+        // Keep every task reachable by id: an OPEN task page in the browser is exact evidence even
+        // if the task is closed, and refusing to attribute it would be strictly worse.
+        let allTasksById = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let companies = companies.filter { !$0.archived }
+        let projects = projects.filter { !$0.archived }
+        let tasks = tasks.filter { !$0.closed }
         self.signalsByValue = Dictionary(grouping: signals, by: { $0.signalValue })
 
         let companyById = Dictionary(companies.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let projectById = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         self.projectsById = projectById
-        self.tasksById = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.tasksById = allTasksById
         var cands: [LexicalCandidate] = []
         for c in companies {
             cands.append(.init(clientId: c.id, projectId: nil, taskId: nil, specificity: 0,

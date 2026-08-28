@@ -88,7 +88,14 @@ public struct RecapWindow: View {
             try DecisionRecorder(db: env.db).record(
                 suggestionId: id, action: action,
                 clientId: suggestion.clientId, projectId: suggestion.projectId,
-                taskId: suggestion.taskId, confirmSignal: confirm)
+                taskId: suggestion.taskId, confirmSignal: confirm,
+                // The card may have been on screen across a regeneration, in which case its id is
+                // dead. Re-point at the row representing the same work now.
+                resolve: { [db = env.db] stale in
+                    guard let stale else { return nil }
+                    return (try? db.liveSuggestionId(matching: stale, day: suggestion.day,
+                                                     attributionKey: suggestion.attributionKey)) ?? nil
+                })
             env.logger.info("recap decision", [
                 "action": action, "suggestion": "\(id)",
                 "confirmed": confirm.map { "\($0.type)=\($0.value)" } ?? "none",
@@ -99,16 +106,50 @@ public struct RecapWindow: View {
         }
     }
 
+    /// Hosts that are TOOLS, not clients.
+    ///
+    /// This list is load-bearing. On the machine this shipped from, the only two confirmable cards
+    /// were backed by `calendar.google.com` and `youtube.com` — so a single click on "Log it ✓"
+    /// would have written `url_host youtube.com -> <that client>` with `user_confirmed` provenance,
+    /// which outranks bootstrapped and inferred FOREVER and has no removal path in the UI. One
+    /// accepted card would have permanently mis-attributed every future YouTube session.
+    ///
+    /// Matched on the registrable suffix so `mail.google.com` and `docs.google.com` are covered
+    /// without enumerating subdomains.
+    static let toolHosts: Set<String> = [
+        "google.com", "gmail.com", "youtube.com", "slack.com", "productive.io", "github.com",
+        "anthropic.com", "claude.ai", "openai.com", "chatgpt.com", "notion.so", "figma.com",
+        "zoom.us", "atlassian.net", "linear.app", "bugherd.com", "dropbox.com", "box.com",
+        "microsoft.com", "office.com", "live.com", "apple.com", "icloud.com", "localhost",
+        "reddit.com", "x.com", "twitter.com", "linkedin.com", "stackoverflow.com",
+    ]
+
+    /// Is this host a tool rather than a client's own domain?
+    static func isToolHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if toolHosts.contains(h) { return true }
+        return toolHosts.contains { h.hasSuffix("." + $0) }
+    }
+
     /// The signal an accepted suggestion should promote, derived from the sessions behind it.
-    /// Returns nil when the sessions carry nothing durable (an `app:` key names a tool, not a
-    /// client, so confirming it would attribute every future use of that app to this client).
+    ///
+    /// Returns nil when the sessions carry nothing durable: an `app:` key names a tool, and a
+    /// tool HOST is the same problem one layer down. A `user_confirmed` rule is permanent and
+    /// outranks everything, so the bar for writing one is "this host identifies a client", not
+    /// "the user accepted a card that happened to involve this host".
     public static func signalToConfirm(db: AppDatabase, suggestion: Suggestion) -> DecisionRecorder.SignalRef? {
         struct Refs: Decodable { let sessions: [Int64]? }
         guard let data = suggestion.sourceRefsJson.data(using: .utf8),
               let ids = (try? JSONDecoder().decode(Refs.self, from: data))?.sessions, !ids.isEmpty,
               let keys = try? db.sessionContextKeys(ids: ids) else { return nil }
         for key in keys {
-            if key.hasPrefix("web:") { return .init(type: "url_host", value: String(key.dropFirst(4))) }
+            if key.hasPrefix("web:") {
+                let host = String(key.dropFirst(4))
+                if isToolHost(host) { continue }
+                return .init(type: "url_host", value: host)
+            }
+            // A Slack conversation IS client-specific in a way a shared tool host is not — a channel
+            // belongs to one piece of work even though slack.com does not.
             if key.hasPrefix("slack:") { return .init(type: "slack_channel", value: String(key.dropFirst(6))) }
         }
         return nil
