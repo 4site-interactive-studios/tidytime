@@ -162,12 +162,60 @@ public final class AppEnvironment: ObservableObject {
         #endif
         jobTimer?.invalidate(); jobTimer = nil
         ingestTimer?.invalidate(); ingestTimer = nil
+        recapTimer?.invalidate(); recapTimer = nil; recapDueAt = nil
         isCapturing = false
         status = .paused
         logger.info("capture paused")
     }
 
     public func toggleCapture() { isCapturing ? pauseCapture() : startCapture() }
+
+    // MARK: Recap scheduling
+
+    /// Fires once a day at `config.recap.time` (default 17:00 local).
+    ///
+    /// `recap.time` was decoded, shown in Settings, dumped into diagnostics — and read by nothing
+    /// that could act on it. There was no wall-clock timer anywhere in the tree, so the recap only
+    /// ever opened if the user remembered to click "Open recap…" in the menu bar. A recap nobody is
+    /// prompted to look at is a database, not a product.
+    @Published public private(set) var recapDueAt: Date?
+    private var recapTimer: Timer?
+    /// Set by the scheduler; the app shell observes it and opens the window.
+    @Published public private(set) var shouldOpenRecap = false
+
+    public func acknowledgeRecapOpened() { shouldOpenRecap = false }
+
+    /// Next occurrence of `HH:mm` strictly after `now`, in the configured timezone.
+    /// `nil` when the value is not a parseable time — a typo must not crash the app or silently
+    /// schedule something surprising.
+    public nonisolated static func nextRecap(after now: Date, time: String, timeZone: TimeZone) -> Date? {
+        let parts = time.split(separator: ":")
+        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
+              (0...23).contains(hour), (0...59).contains(minute) else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        guard let today = cal.date(bySettingHour: hour, minute: minute, second: 0, of: now) else { return nil }
+        return today > now ? today : cal.date(byAdding: .day, value: 1, to: today)
+    }
+
+    private func scheduleRecap() {
+        recapTimer?.invalidate()
+        guard let due = Self.nextRecap(after: Date(), time: config.recap.time, timeZone: timeZone) else {
+            logger.error("recap not scheduled — recap.time is not HH:mm", ["value": config.recap.time])
+            return
+        }
+        recapDueAt = due
+        logger.info("recap scheduled", ["at": ISO8601DateFormatter().string(from: due)])
+        recapTimer = Timer(fire: due, interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.shouldOpenRecap = true
+                self.logger.info("recap due — opening", [:])
+                self.scheduleRecap()   // arm tomorrow
+            }
+        }
+        if let recapTimer { RunLoop.main.add(recapTimer, forMode: .common) }
+    }
 
     // MARK: Periodic work
 
@@ -186,6 +234,7 @@ public final class AppEnvironment: ObservableObject {
             MainActor.assumeIsolated { self?.runIngestOnce() }
         }
         runIngestOnce()
+        scheduleRecap()
     }
 
     /// Kick every ready ingest source once. Safe to call from a button.
@@ -245,6 +294,13 @@ public final class AppEnvironment: ObservableObject {
                 standaloneThresholdMinutes: config.suggestions.standaloneThresholdMinutes,
                 selfPersonId: (try? db.selfPerson())?.id)
             _ = try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
+
+            // Unresolved recurring hosts become ONE ask-once question each. Without this the recap's
+            // Questions section is permanently empty and the user has no way to teach the app about
+            // a domain it cannot place — the manual repair channel was closed alongside the
+            // automatic one.
+            _ = try? ResolutionQuestionGenerator().generate(
+                db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
 
             try refreshToday()
             try writeRollups()

@@ -1668,3 +1668,39 @@ live numbers surfaced this — every unit test still passed.
 
 Live after stages 1–3: **63 of 89 of today's sessions attributed (71%)**, up from 7, with **20 at
 rung 1** where there had never been a single one.
+
+### 5. Closing the learning loop
+
+Three orphans, all on the path between "the app guessed" and "the app learns".
+
+**`DecisionRecorder` was bypassed.** `RecapWindow.handle` wrote `updateSuggestionStatus` +
+`insertDecision` by hand — the same two rows — and skipped the one thing `DecisionRecorder` adds:
+the `user_confirmed` signal write. `user_confirmed` outranks `bootstrapped` and `inferred` forever,
+so it is the entire correction channel. `RecapView`'s own doc comment said "the app wires it to
+`DecisionRecorder`"; it did not. Accepting a suggestion taught the system nothing.
+
+Now routed through it. The interesting question was *what* to confirm: a suggestion does not record
+which signal produced it. The durable thing is the **context key of the sessions behind it** — a host
+or Slack conversation that will recur tomorrow — so accepting promotes that.
+
+Two deliberate restrictions:
+- **Only on accept.** Tossing says the attribution was *wrong*; confirming it would teach the
+  opposite of what the user meant.
+- **Never an `app:` key.** Those name a tool. Confirming `app:com.apple.mail` would attribute every
+  future use of Mail to whichever client happened to be on screen first — a rule that gets more
+  wrong the longer it survives, and `user_confirmed` means it would outrank everything while doing so.
+
+**`ResolutionQuestionGenerator` had no caller**, so the recap's Questions section was permanently
+empty and the *manual* repair channel was closed alongside the automatic one. Wired into the
+pipeline; one question per recurring unresolved host, idempotent across passes.
+
+**No recap scheduler existed.** `config.recap.time` was decoded, shown in Settings, dumped into
+diagnostics, and read by nothing that could act on it — there was no wall-clock timer anywhere in
+the tree. The recap opened only if the user remembered to click "Open recap…". A recap nobody is
+prompted to look at is a database, not a product.
+
+`AppEnvironment` sets a flag rather than opening the window itself: it lives in the package and has
+no access to SwiftUI's `openWindow`, which exists only in the app shell. The shell observes the flag.
+That keeps the module boundary intact instead of dragging window management into the library.
+A malformed `recap.time` logs and schedules nothing rather than crashing or firing at a surprising
+hour — pinned for `""`, `"17"`, `"5pm"`, `"25:00"`, `"17:99"`.

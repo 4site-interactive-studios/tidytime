@@ -63,6 +63,22 @@ extension AppDatabase {
         }
     }
 
+    /// Context keys of the given sessions.
+    ///
+    /// Feeds the learning loop: accepting a suggestion is the user saying "these sessions really
+    /// were this client", and the context key is the durable thing to remember — a host or a Slack
+    /// conversation that will recur tomorrow.
+    public func sessionContextKeys(ids: [Int64]) throws -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let placeholders = ids.map { _ in "?" }.joined(separator: ",")
+        return try writer.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT context_key FROM sessions
+                WHERE id IN (\(placeholders)) AND context_key IS NOT NULL AND context_key != ''
+                """, arguments: StatementArguments(ids))
+        }
+    }
+
     /// Distinct URLs captured during a window, newest first.
     ///
     /// Feeds exact task attribution: when a Productive task page is open, the task id is right there

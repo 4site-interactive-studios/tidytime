@@ -47,6 +47,7 @@ final class AppLauncher: ObservableObject {
     @Published private(set) var state: State = .starting
     private var windows: [AppWindow: NSWindow] = [:]
     private var envObservation: AnyCancellable?
+    private var recapObservation: AnyCancellable?
 
     init() {
         do {
@@ -57,6 +58,16 @@ final class AppLauncher: ObservableObject {
             // relaunch (round-3 finding R1-C3).
             envObservation = env.objectWillChange.sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            // The recap scheduler sets a flag rather than opening a window itself: AppEnvironment
+            // lives in the package and has no access to SwiftUI's openWindow, which only exists in
+            // the app shell. Observing the flag keeps that boundary intact.
+            recapObservation = env.$shouldOpenRecap.sink { [weak self] due in
+                guard due else { return }
+                DispatchQueue.main.async {
+                    self?.open(.recap, env: env)
+                    env.acknowledgeRecapOpened()
+                }
             }
             env.startCapture()
             registerLaunchAtLogin()
