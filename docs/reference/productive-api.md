@@ -475,6 +475,37 @@ ON CONFLICT(source) DO UPDATE SET
 
 ---
 
+## Relationships require `include` — verified 2026-08-28
+
+**Productive omits relationship linkage entirely unless you ask for it.** This is the single most
+expensive thing to get wrong in this client, because it fails silently:
+
+```
+GET /tasks?page[size]=1                   ->  "project": { "meta": { "included": false } }
+GET /tasks?page[size]=1&include=project   ->  "project": { "data": { "type": "projects", "id": "16332" } }
+```
+
+With no `data` key there is no id to read, so every foreign key lands as `""` and the mirror becomes
+a set of disconnected tables. Observed live before the fix: **11,631 tasks belonging to no project,
+965 projects to no company, and 160 time entries to no task *and no person*** — despite `person_id`
+being the filter that fetched them. Nothing errors; the tables just never join, which starves
+classification and produces zero suggestions.
+
+| Endpoint | Send | Gives |
+|---|---|---|
+| `tasks` | `include=project,assignee,task_list` | `project_id`, `assignee_id`, `task_list_id` |
+| `projects` | `include=company` | `company_id` |
+| `time_entries` | `include=task,person,service` | `task_id`, `person_id`, `service_id` |
+| `companies`, `people` | *(none)* | no relationship is read |
+
+The response then also carries a top-level `included[]` array with the full sideloaded resources.
+TidyTime ignores it and reads linkage ids only — but a decoder must tolerate its presence.
+
+> **Do not add `fields[…]` sparse fieldsets.** The sample requests below show them, and narrowing the
+> attribute list is exactly how you silently drop a field you already depend on.
+
+---
+
 ## Task deep links (web app, not the API)
 
 **Verified against a live task 2026-08-28** (resolves open item

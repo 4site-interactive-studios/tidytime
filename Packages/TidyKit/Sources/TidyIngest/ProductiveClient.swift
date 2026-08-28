@@ -206,6 +206,30 @@ public struct LiveProductiveClient: ProductiveClient {
         self.maxRetries = maxRetries; self.pageSize = pageSize; self.sleeper = sleeper
     }
 
+    // MARK: Relationship sideloading — the `include` parameter is LOAD-BEARING
+    //
+    // Productive omits relationship **linkage** entirely unless you ask for it. Verified against
+    // the live API on 2026-08-28:
+    //
+    //   GET /tasks?page[size]=1                  -> "project": {"meta": {"included": false}}
+    //   GET /tasks?page[size]=1&include=project  -> "project": {"data": {"type":"projects","id":"16332"}}
+    //
+    // Without it there is no `data` key, so `JSONAPIResource.relationshipId` correctly returns nil
+    // and every foreign key lands as "" — 11,631 tasks belonging to no project, 965 projects to no
+    // company, 160 time entries to no task AND no person (despite person being the filter that
+    // fetched them). That empties the mirror, which starves classification, which is why the app
+    // produced zero suggestions for a month. The parsing was never wrong; we simply never asked.
+    //
+    // Deliberately NOT adding `fields[…]` sparse fieldsets. The reference doc's samples show them,
+    // but narrowing the attribute list is how you silently drop a field you already depend on —
+    // the same failure that made `task_number` a type mismatch.
+    static let includes: [String: String] = [
+        "tasks": "project,assignee,task_list",
+        "projects": "company",
+        "time_entries": "task,person,service",
+        // companies and people have no relationship we read.
+    ]
+
     public func fetchCompanies() async throws -> [PDCompany] {
         try await fetchAll(path: "companies", query: [], map: PDMapper.company)
     }
@@ -237,9 +261,13 @@ public struct LiveProductiveClient: ProductiveClient {
         let syncedAt = Int64(clock.now.timeIntervalSince1970)
         var out: [R] = []
         var skipped = 0
+        var unlinked = 0
         var page = 1
         while true {
             var q = query
+            if let include = Self.includes[path] {
+                q.append(URLQueryItem(name: "include", value: include))
+            }
             q.append(URLQueryItem(name: "page[number]", value: String(page)))
             q.append(URLQueryItem(name: "page[size]", value: String(pageSize)))
             let response = try await sendWithRetry(builder.get(path: path, query: q))
@@ -251,6 +279,10 @@ public struct LiveProductiveClient: ProductiveClient {
             }
             out.append(contentsOf: doc.data.map { map($0, syncedAt) })
             skipped += doc.skipped
+            // A resource we asked to sideload but that came back with no relationship linkage at all.
+            if Self.includes[path] != nil {
+                unlinked += doc.data.filter { ($0.relationships?.values.contains { $0.data != nil } ?? false) == false }.count
+            }
             // Page-fullness must be judged on RESOURCES RECEIVED, not resources kept. A page whose
             // rows all failed to decode still means "there is more after this"; testing
             // `doc.data.count` alone would silently truncate the walk at the first bad page.
@@ -276,6 +308,17 @@ public struct LiveProductiveClient: ProductiveClient {
         if skipped > 0 {
             logger?.error("productive resources skipped — they failed to decode", [
                 "path": path, "skipped": String(skipped), "kept": String(out.count),
+            ])
+        }
+        // An empty foreign key is how the severed mirror hid for a month: PDMapper coerces a
+        // missing relationship to "" and every downstream join silently matches nothing. If a whole
+        // page comes back unlinked, the `include` above is missing or the API changed — say so
+        // rather than writing thousands of orphan rows quietly.
+        if !out.isEmpty, Self.includes[path] != nil, unlinked == out.count {
+            logger?.error("productive rows have NO relationships — the mirror will be unusable", [
+                "path": path, "rows": String(out.count),
+                "expected_include": Self.includes[path] ?? "",
+                "effect": "foreign keys are empty; classification and suggestions cannot work",
             ])
         }
         return out

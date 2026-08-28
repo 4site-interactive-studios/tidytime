@@ -1439,3 +1439,52 @@ Not changed: the three-values-three-places table was already correct, including 
 secret is pasted in **Settings → Credentials** rather than written with the `security` CLI. Writing
 it by hand invites exactly the ACL mismatch the 2026-07-25 Keychain entry describes, and it puts the
 secret in shell history for no benefit.
+
+---
+
+## Phase 5 completion: making the app actually suggest time entries (2026-08-28)
+
+The app had captured 48,073 samples and 3,890 sessions since late July and produced **zero**
+suggestions — the one thing it exists to do. Not one bug but a severed chain, each link verified
+against the live database and the live API. Stages below are in dependency order.
+
+### 1. Productive relationships were never requested
+
+**Root cause, and it is one missing query parameter.** Productive omits relationship *linkage*
+unless you send `include=`:
+
+```
+GET /tasks?page[size]=1                  ->  "project": {"meta": {"included": false}}   ← no data key
+GET /tasks?page[size]=1&include=project  ->  "project": {"data": {"type":"projects","id":"16332"}}
+```
+
+Our JSON:API parsing was **correct** — `relationshipId` returns nil when there is no `data`, which is
+right. We simply never asked. Consequence, measured before the fix:
+
+| Column | Rows | Empty |
+|---|---|---|
+| `pd_tasks.project_id` | 11,631 | **11,631** |
+| `pd_projects.company_id` | 965 | **965** |
+| `pd_time_entries.task_id` | 160 | **160** |
+| `pd_time_entries.person_id` | 160 | **160** |
+
+The person_id one is the tell: it was empty despite `filter[person_id]` being what fetched those
+very rows. A mirror of disconnected tables — 11,631 tasks belonging to nothing — which starves
+`Classifier` (it builds task candidates by walking task → project → company, so it built none),
+which leaves `sessions.task_id` at 0/3890, which makes `SuggestionEngine` unable to emit anything
+but junk. Every downstream symptom traces here.
+
+`docs/reference/productive-api.md` showed `include=` in all three sample requests. The code sent
+none. The doc was right and the code was wrong — the reverse of the `task_number` case earlier the
+same day, which is a useful reminder that "the doc is stale" is a hypothesis, not a default.
+
+**Rejected:** adding `fields[…]` sparse fieldsets alongside `include`, which the doc's samples also
+show. Narrowing the attribute list is precisely how you silently drop a field you already depend on;
+the payload saving is not worth reintroducing the `task_number` failure mode. Documented as a
+"do not" in the reference.
+
+**Also added:** a loud check for the failure returning. `PDMapper` coerces a missing relationship to
+`""`, which is how this hid for a month — an empty foreign key joins to nothing and raises no error.
+`fetchAll` now counts rows that came back with no linkage at all and, if a whole page is unlinked on
+an endpoint we asked to sideload, logs at error level naming the expected `include`. A silent orphan
+row is worse than a noisy one.
