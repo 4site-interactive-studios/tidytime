@@ -20,7 +20,7 @@ public struct SuggestionEngine: Sendable {
     private let deepLinkPattern: String?
 
     public init(db: AppDatabase, clock: TidyClock = SystemClock(), rounding: RoundingPolicy = RoundingPolicy(),
-                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 15, selfPersonId: String? = nil,
+                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 5, selfPersonId: String? = nil,
                 organization: Config.Organization? = nil, deepLinkPattern: String? = nil) {
         self.db = db; self.clock = clock; self.rounding = rounding
         self.standaloneThresholdMinutes = standaloneThresholdMinutes
@@ -41,6 +41,9 @@ public struct SuggestionEngine: Sendable {
     public struct Summary: Sendable, Equatable {
         public var standalone: Int
         public var pools: Int
+        /// Pools too small to be worth a full billing increment. Reported, never silent.
+        public var droppedBelowPoolThreshold: Int = 0
+        public var droppedPoolSeconds: Int = 0
         public var newTaskProposals: Int
         public var skippedAlreadyLogged: Int
         /// Groups left alone because the user already logged/tossed them on this day.
@@ -61,9 +64,20 @@ public struct SuggestionEngine: Sendable {
         var seconds: Int = 0
         var sessionIds: [Int64] = []
         var titles: [String] = []
-        var confidence: Double = 0
         var rung: Int = 5
         var isMeeting = false
+
+        /// Duration-weighted, not `max`. Taking the best session's confidence let a single
+        /// exact-URL match drag an otherwise-speculative group up to 0.97, so a card claiming
+        /// near-certainty could be 90% guesswork by time. The weighted mean says what the card
+        /// as a whole is worth, which is what the number is for.
+        var confidenceSeconds: Double = 0
+        var confidence: Double { seconds > 0 ? confidenceSeconds / Double(seconds) : 0 }
+
+        mutating func absorb(seconds: Int, confidence: Double) {
+            self.seconds += seconds
+            self.confidenceSeconds += confidence * Double(seconds)
+        }
     }
 
     @discardableResult
@@ -88,10 +102,9 @@ public struct SuggestionEngine: Sendable {
             guard let clientId = s.clientId else { continue }
             let key = s.taskId.map { "t:" + $0 } ?? s.projectId.map { "p:" + $0 } ?? "c:" + clientId
             var g = groups[key] ?? Group(clientId: clientId, projectId: s.projectId, taskId: s.taskId)
-            g.seconds += s.durationSeconds
+            g.absorb(seconds: s.durationSeconds, confidence: s.confidence ?? 0)
             if let id = s.id { g.sessionIds.append(id) }
             if let t = s.title, !t.isEmpty { g.titles.append(t) }
-            g.confidence = max(g.confidence, s.confidence ?? 0)
             g.rung = min(g.rung, s.producedByRung ?? 5)
             if s.kind == "meeting" { g.isMeeting = true }
             groups[key] = g
@@ -141,20 +154,34 @@ public struct SuggestionEngine: Sendable {
             } else {
                 let poolKey = g.projectId.map { "p:" + $0 } ?? "c:" + g.clientId
                 var p = pools[poolKey] ?? Group(clientId: g.clientId, projectId: g.projectId)
-                p.seconds += g.seconds
+                p.absorb(seconds: g.seconds, confidence: g.confidence)
                 p.sessionIds.append(contentsOf: g.sessionIds)
                 p.titles.append(contentsOf: g.titles)
-                p.confidence = max(p.confidence, g.confidence)
                 p.rung = min(p.rung, g.rung)
                 pools[poolKey] = p
             }
         }
 
-        // At recap time, every non-empty pool rolls up into one itemized suggestion (the
-        // `poolThresholdMinutes` is for real-time promotion during the day; at recap nothing is left
-        // to evaporate). `generate` is the recap run, so roll up all pools with time on them.
+        // Each pool that rolls up costs a full billing increment, so the count of pools — not their
+        // size — sets the day's inflation. Live, ten pools holding 80 real minutes were suggesting
+        // 150: three of them held 1.2, 2.5 and 3.2 minutes and each bought a 15-minute card.
+        //
+        // A 72-second fragment is not billable work, it is a lexical rung's noise wearing a client's
+        // name, and rounding it up 12x makes a data-quality problem look like a rounding rule. So a
+        // pool must hold at least `poolThresholdMinutes` before it is worth a card. That parameter
+        // existed and was explicitly discarded (`_ = poolThresholdMinutes`) — this is the job it was
+        // named for.
+        //
+        // What survives is still inflated, and legitimately: seven clients touched for a few minutes
+        // each, billed at a 15-minute minimum, IS 105 minutes. That is what increment billing means,
+        // not a defect. `Summary.droppedBelowPoolThreshold` reports what was set aside so the choice
+        // is visible rather than silent.
         for (_, p) in pools where p.seconds > 0 {
-            _ = poolThresholdMinutes  // retained for real-time promotion; unused at recap
+            guard p.seconds >= poolThresholdMinutes * 60 else {
+                summary.droppedBelowPoolThreshold += 1
+                summary.droppedPoolSeconds += p.seconds
+                continue
+            }
             let (minutes, roundedUp) = rounding.rounded(seconds: p.seconds)
             let poolId = try db.insertPool(Pool(
                 day: day, clientId: p.clientId, projectId: p.projectId, accumulatedSeconds: p.seconds,

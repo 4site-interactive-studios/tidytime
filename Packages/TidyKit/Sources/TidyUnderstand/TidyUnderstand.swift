@@ -251,10 +251,19 @@ public struct Classifier: Sendable {
 
         guard Set(hits.map { $0.1.clientId! }).count == 1 else { return nil }
         let best = hits.max(by: { $0.1.weight < $1.1.weight })!
+
+        // Scale with corroboration. A flat constant here made confidence carry no information:
+        // live, 9 of 14 cards read exactly 0.82, so the number could not help the user triage which
+        // card to check. One token in a window title is a guess; three independent tokens all
+        // naming the same client is close to certainty. Capped below the exact-value arm's 0.85 —
+        // a hostname is unambiguous evidence and words never quite are.
+        let corroboration = Set(hits.map { $0.0 }).count
         return Classification(
             clientId: best.1.clientId!, projectId: best.1.projectId, taskId: nil,
-            confidence: 0.82, rung: 1,
-            rationale: "matched keyword '\(best.0)'",
+            confidence: min(0.84, 0.70 + 0.06 * Double(corroboration)), rung: 1,
+            rationale: corroboration == 1
+                ? "matched keyword '\(best.0)'"
+                : "matched \(corroboration) keywords incl. '\(best.0)'",
             matchedSignalType: best.1.signalType, matchedSignalValue: best.0)
     }
 
@@ -281,7 +290,9 @@ public struct Classifier: Sendable {
 
         return Classification(
             clientId: best.cand.clientId, projectId: best.cand.projectId, taskId: best.cand.taskId,
-            confidence: min(0.8, 0.45 + 0.12 * Double(best.score)), rung: 2,
+            // Spread across the low end rather than saturating at 0.8 from score 3 onward: a
+            // single shared token is a weak guess and should read like one.
+            confidence: min(0.80, 0.40 + 0.10 * Double(best.score)), rung: 2,
             rationale: "lexical match '\(best.cand.label)' (score \(best.score))")
     }
 }

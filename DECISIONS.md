@@ -1843,3 +1843,34 @@ There was none, ever. `.github/workflows/ci.yml` runs `make test` (suite + guard
 *built* in CI without a `DEVELOPMENT_TEAM`, and an ad-hoc signature would defeat G7 anyway, but it
 can be type-checked, which catches the SwiftUI/availability breakage package tests never see.
 All three targets verified green locally before committing.
+
+### The two numbers on every card were both lying
+
+**Minutes.** Ten pools holding 80 real minutes were suggesting 150. Inflation scales with the
+*number* of pools, not their size — each one that rolls up costs a whole billing increment — and
+three of them held 1.2, 2.5 and 3.2 minutes. A 72-second fragment is not billable work; it is the
+lexical rung's noise wearing a client's name, and rounding it up 12× makes a data-quality problem
+look like a rounding rule.
+
+`poolThresholdMinutes` already existed as a parameter and was explicitly discarded
+(`_ = poolThresholdMinutes  // unused at recap`). This is the job it was named for. Default 5 — a
+third of an increment — and now in `config.suggestions.pool_threshold_minutes` and passed at the
+production call site, because "configured but not enforced" is this repo's signature defect and
+adding a knob nothing reads would repeat it.
+
+What survives is still inflated and legitimately so: seven clients touched for a few minutes each,
+billed at a 15-minute minimum, *is* 105 minutes. That is what increment billing means. The 1.2×
+sanity check I wrote into the plan was wrong as a target — the fix is to stop billing noise, not to
+stop rounding. The dropped time is reported in `Summary` rather than discarded silently.
+
+**Confidence.** 9 of 14 cards read exactly 0.82, so the column ordered nothing. Two causes:
+
+- `rung1Keyword` returned a flat constant, so one weak token and three corroborating tokens scored
+  identically. Now `min(0.84, 0.70 + 0.06 × distinct tokens)` — capped below the exact-value arm's
+  0.85, because a hostname is unambiguous evidence and words never quite are.
+- `SuggestionEngine` took `max` across a group's sessions, so five minutes of exact-URL certainty
+  spoke for fifty-five minutes of guessing and the card read 0.97. Now duration-weighted, which is
+  what the number is supposed to mean.
+
+Rung 2 had the same saturation shape (`min(0.8, 0.45 + 0.12 × score)` pins at 0.8 from score 3);
+widened to `min(0.80, 0.40 + 0.10 × score)` so a single shared token reads like the weak guess it is.

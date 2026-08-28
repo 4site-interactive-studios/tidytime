@@ -292,6 +292,7 @@ public final class AppEnvironment: ObservableObject {
                 rounding: RoundingPolicy(incrementMinutes: config.suggestions.incrementMinutes,
                                          roundUpBias: config.suggestions.roundUpBias),
                 standaloneThresholdMinutes: config.suggestions.standaloneThresholdMinutes,
+                poolThresholdMinutes: config.suggestions.poolThresholdMinutes,
                 selfPersonId: (try? db.selfPerson())?.id,
                 organization: config.organization,
                 deepLinkPattern: config.productive.taskDeepLinkPattern)

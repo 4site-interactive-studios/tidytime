@@ -257,19 +257,28 @@ public struct Config: Codable, Sendable, Equatable {
         public var incrementMinutes: Int
         public var roundUpBias: Double
         public var standaloneThresholdMinutes: Int
-        public init(incrementMinutes: Int = 15, roundUpBias: Double = 0.4, standaloneThresholdMinutes: Int = 15) {
+        /// Smallest pool worth a card. Every pool that rolls up costs a whole billing increment, so
+        /// this is the dial between "the little things stop evaporating" and a day of 90-second
+        /// fragments each billed at 15 minutes. A third of an increment: below that, rounding up
+        /// more than triples the time and the attribution is usually lexical noise anyway.
+        public var poolThresholdMinutes: Int
+        public init(incrementMinutes: Int = 15, roundUpBias: Double = 0.4,
+                    standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 5) {
             self.incrementMinutes = incrementMinutes; self.roundUpBias = roundUpBias
             self.standaloneThresholdMinutes = standaloneThresholdMinutes
+            self.poolThresholdMinutes = poolThresholdMinutes
         }
         enum CodingKeys: String, CodingKey {
             case incrementMinutes = "increment_minutes", roundUpBias = "round_up_bias"
             case standaloneThresholdMinutes = "standalone_threshold_minutes"
+            case poolThresholdMinutes = "pool_threshold_minutes"
         }
         public init(from d: Decoder) throws {
             let c = try d.container(keyedBy: CodingKeys.self); let z = Suggestions()
             incrementMinutes = try c.decodeIfPresent(Int.self, forKey: .incrementMinutes) ?? z.incrementMinutes
             roundUpBias = try c.decodeIfPresent(Double.self, forKey: .roundUpBias) ?? z.roundUpBias
             standaloneThresholdMinutes = try c.decodeIfPresent(Int.self, forKey: .standaloneThresholdMinutes) ?? z.standaloneThresholdMinutes
+            poolThresholdMinutes = try c.decodeIfPresent(Int.self, forKey: .poolThresholdMinutes) ?? z.poolThresholdMinutes
         }
     }
 
