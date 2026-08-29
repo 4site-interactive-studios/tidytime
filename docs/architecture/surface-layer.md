@@ -85,23 +85,22 @@ struct TidyTimeApp: App {
         }
         .menuBarExtraStyle(.window)                         // rich popover, not a plain menu
 
-        Window("Recap", id: WindowID.recap) {
-            RecapView().environment(container.recap)
-        }
-        .defaultSize(width: 1040, height: 720)
-        .windowResizability(.contentMinSize)
-
-        Window("Dashboard", id: WindowID.dashboard) {
-            DashboardView().environment(container.dashboard)
-        }
-        .defaultSize(width: 900, height: 620)
-
-        Settings {
-            SettingsView().environment(container.settings)
-        }
+        // NOTE: the shipped shell does NOT use SwiftUI `Window` scenes. `MenuBarExtra` has no
+        // `openWindow` for auxiliary panels in a menu-bar-only app, so `AppLauncher` manages
+        // NSWindows directly and caches them by `AppWindow.windowKey`. See App/TidyTimeApp.swift.
     }
 }
 ```
+
+**Recap and Stats are one window, not two.** `MainWindow` hosts them as tabs bound to
+`MainWindowModel.tab`, which lives on the app shell rather than in the view so the menu bar can
+set it: clicking "Stats…" while the window is open showing the Recap has to *switch the tab*, not
+front a window still showing the recap. Rebuilding the window to change tabs would discard the
+recap's selected day, and giving them separate cache keys would open a duplicate window.
+
+Both menu items therefore resolve to the same `windowKey` (`"main"`), and the tab assignment happens
+**before** the early return for an already-open window — a test pins that ordering, because
+reversing the two lines is a silent no-op rather than a compile error.
 
 The away prompt is **not** a SwiftUI scene: it is a small always-available `NSPanel`
 (non-activating, floating) presented on return from a gap, because it must appear over other
@@ -236,7 +235,11 @@ A compact SwiftUI view — not the recap. Contents:
 - **Pending suggestions** — count of `suggestions` for today with `status = 'pending'`;
   tap opens the recap scrolled to the stack.
 - **Pause / Resume capture** — toggles `CaptureControlling`; icon reflects it immediately.
-- **Open Recap** (⌘R) · **Open Dashboard** (⌘D) · **Settings…** (⌘,) · **Quit**.
+- **Recap…** · **Stats…** · **Settings…** · **Doctor…** · **Quit**.
+  Recap and Stats are two tabs of ONE window (`MainWindow`); the menu item chooses the tab, and
+  choosing the other one on an already-open window switches tabs rather than opening a second
+  window. "Dashboard" was renamed to **Stats** — the old name described a place in the app,
+  which only helps someone who already knows the app.
 - When `attention`, a one-line banner with a **Fix** button (opens Settings/`doctor`).
 
 ```sql
@@ -512,7 +515,7 @@ catch-up) on the installed macOS version.
 
 ---
 
-## 8. Dashboard
+## 8. Stats (the tab formerly called Dashboard)
 
 Weekly **metrics, no targets** (a deliberate product stance — see
 [../../PLAN.md](../../PLAN.md) §9): four numbers, one small chart, plus the AI-overhead panel.
@@ -672,7 +675,7 @@ From [../../PLAN.md](../../PLAN.md) §11 (Phases 5–6):
       meetings/quiet hours, and stop poking dismissed contexts; accept copies the note.
 - [ ] Away prompt turns a gap into a suggestion or discards it; unanswered gaps show in the
       recap.
-- [ ] Dashboard shows the four weekly numbers + AI-overhead panel from `ai_calls` with working
+- [ ] The Stats tab shows the four weekly numbers + AI-overhead panel from `ai_calls` with working
       CSV export; **no targets** anywhere.
 - [ ] Settings round-trips every knob in `config.example.json`; tokens land in Keychain, never
       in `config.json` (guardrail G6).

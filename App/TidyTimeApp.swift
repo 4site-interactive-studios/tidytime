@@ -45,7 +45,13 @@ final class AppLauncher: ObservableObject {
     }
 
     @Published private(set) var state: State = .starting
-    private var windows: [AppWindow: NSWindow] = [:]
+    // Keyed by AppWindow.windowKey, not by AppWindow: Recap and Stats are two tabs of ONE window
+    // and must resolve to the same entry, or clicking the second menu item opens a duplicate.
+    private var windows: [String: NSWindow] = [:]
+    /// Which tab the combined window shows. Lives out here so the menu bar can set it on a window
+    /// that is already open — re-creating the window instead would discard the recap's chosen day.
+    private let mainModel = MainWindowModel()
+    private var mainTabObservation: AnyCancellable?
     private var envObservation: AnyCancellable?
     private var recapObservation: AnyCancellable?
 
@@ -100,19 +106,22 @@ final class AppLauncher: ObservableObject {
     }
 
     func open(_ window: AppWindow, env: AppEnvironment) {
-        if let existing = windows[window] {
+        // The menu item names a TAB, not just a window. Set it before fronting, so clicking
+        // "Stats…" on an open window showing the recap actually lands on Stats.
+        if let tab = MainTab(window) {
+            if tab == .recap { try? env.refreshToday() }
+            mainModel.tab = tab
+        }
+        if let existing = windows[window.windowKey] {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
         let root: AnyView
         switch window {
-        case .recap:
-            try? env.refreshToday()
-            root = AnyView(RecapWindow(env: env))
-        case .dashboard: root = AnyView(DashboardView(env: env))
-        case .settings:  root = AnyView(SettingsView(env: env))
-        case .doctor:    root = AnyView(DoctorView(env: env))
+        case .recap, .stats: root = AnyView(MainWindow(env: env, model: mainModel))
+        case .settings:      root = AnyView(SettingsView(env: env))
+        case .doctor:        root = AnyView(DoctorView(env: env))
         }
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(contentViewController: hosting)
@@ -121,7 +130,14 @@ final class AppLauncher: ObservableObject {
         win.setContentSize(NSSize(width: 900, height: 620))
         win.center()
         win.isReleasedWhenClosed = false
-        windows[window] = win
+        windows[window.windowKey] = win
+        // Follow the tab when the user switches it from inside the window, not just when the menu
+        // opens it — otherwise the title bar says "Recap" while Stats is on screen.
+        if MainTab(window) != nil {
+            mainTabObservation = mainModel.$tab.sink { [weak win] tab in
+                win?.title = "TidyTime — \(tab.title)"
+            }
+        }
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

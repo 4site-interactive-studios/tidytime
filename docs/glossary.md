@@ -94,7 +94,7 @@ given so the vocabulary stays consistent.
   confidently and isn't logged yet. Learns from dismissals.
 - **Recap** — the end-of-day (configurable time) window: timeline on the left, suggestion
   stack on the right. Unreconciled days queue to the next morning.
-- **Dashboard** — weekly metrics (observed vs. logged, billable vs. internal, per-client
+- **Stats** (formerly *Dashboard*) — the second tab of the main window; weekly metrics (observed vs. logged, billable vs. internal, per-client
   totals, capture health) + AI overhead panel. Local only, **no targets**.
 - **Doctor** — the in-app debug view (and `make doctor`) showing DB path, config path, and
   permission status; makes dropped TCC grants visible.

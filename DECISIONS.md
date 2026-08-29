@@ -2014,3 +2014,47 @@ whether a task id exists, because that is the question the user answers next: *c
 or do I have to go make something first?* Grouping by `kind` gets it wrong — a `pool` carries a
 project and no task, so six of today's ten cards would file under "existing", sending the user to
 Productive to find nothing to log against.
+
+## One window for Recap and Stats (2026-08-28)
+
+They were two windows, which made them feel like two features. They are two halves of one question —
+what did I do today, and how is the week going — and separating them meant two things to find,
+arrange and close, with no way to glance from one to the other.
+
+Now two tabs of one window (`MainWindow`), and **the menu item picks the tab**.
+
+Three decisions worth keeping:
+
+**`TabView`, not a segmented control over a `switch`.** The switch destroys the inactive subtree, so
+stepping over to Stats and back would reset the recap to today and re-run its query. `TabView` keeps
+both alive, matches `SettingsView` which is already tabbed, and gives keyboard navigation free.
+
+**The selected tab lives on the app shell, not in the view.** A `@State` inside `MainWindow` cannot
+be reached from the menu bar, so clicking "Stats…" on an already-open window would front a window
+still showing the recap. Rebuilding the window to change tabs would work and would throw away the
+recap's selected day. Hence `MainWindowModel`, owned by `AppLauncher`.
+
+**Both menu items share one window key.** The shell caches NSWindows in a dictionary; keying on the
+enum case directly would cache two windows, and the second menu item would open a duplicate showing
+the same content. `AppWindow.windowKey` maps `.recap` and `.stats` to `"main"` — four menu items,
+three windows.
+
+The ordering inside `open()` is load-bearing and invisible: the tab must be assigned **before** the
+early return for an existing window. Reversing those two lines is a silent no-op, not a compile
+error, so a test pins the order by source position.
+
+### "Dashboard" → "Stats"
+
+The old name described a *place in the app*, which is only useful to someone who already knows the
+app; the new one describes what is on the screen. `DashboardView`, `DashboardBuilder` and
+`AIDashboard` keep their names — those are the AI-overhead read models, and only the window, tab and
+menu naming changed.
+
+Also corrected while here: `surface-layer.md` illustrated the shell with SwiftUI `Window` scenes it
+has never used. `MenuBarExtra` has no `openWindow` for auxiliary panels in a menu-bar-only app, so
+the shell manages NSWindows directly. Same doc-vs-reality class as the module-boundary claim fixed
+earlier today, in the same file.
+
+**Not verified by me:** the tab routing is covered by tests and by reading the shell, but I could not
+click the menu items — `osascript` lacks Accessibility access on this machine, and granting it needs
+the user's password. Build, install, launch and crash-freedom were checked.

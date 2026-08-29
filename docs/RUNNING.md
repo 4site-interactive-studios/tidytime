@@ -146,7 +146,7 @@ If `xcodebuild` fails to load a plug-in before compiling anything, run `xcodebui
 (it reinstalls stale system components; it worked here **without** sudo). `make typecheck-app`
 compiles `App/` without xcodebuild if you need to isolate a code problem from a toolchain one.
 ✔ A menu-bar icon appears; clicking it shows today's observed/logged totals and opens Recap,
-Dashboard, Settings, and Doctor. **Open Doctor first** — it shows live permission status and has the
+Stats, Settings, and Doctor — Recap and Stats being two tabs of one window. **Open Doctor first** — it shows live permission status and has the
 one-click *Copy diagnostics* button.
 **Packaging:** `make dmg` produces `dist/TidyTime.dmg` (needs `Local.xcconfig`). To try it before
 setting a team id: `ALLOW_UNSIGNED=1 make dmg` → `dist/TidyTime-UNSIGNED-PREVIEW.dmg`. Either way the

@@ -52,8 +52,8 @@ public struct MenuBarPopover: View {
     private var actions: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(env.isCapturing ? "Pause capture" : "Resume capture") { env.toggleCapture() }
-            Button("Open recap…") { openWindow(.recap) }
-            Button("Dashboard…") { openWindow(.dashboard) }
+            Button("Recap…") { openWindow(.recap) }
+            Button("Stats…") { openWindow(.stats) }
             Button("Settings…") { openWindow(.settings) }
             Button("Doctor…") { openWindow(.doctor) }
             Divider()
@@ -83,15 +83,25 @@ public struct MenuBarPopover: View {
 }
 
 /// Windows the app can open from the menu bar.
-public enum AppWindow: String, Identifiable, Sendable {
-    case recap, dashboard, settings, doctor
+public enum AppWindow: String, CaseIterable, Identifiable, Sendable {
+    case recap, stats, settings, doctor
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .recap: return "Recap"
-        case .dashboard: return "Dashboard"
+        case .stats: return "Stats"
         case .settings: return "Settings"
         case .doctor: return "Doctor"
+        }
+    }
+
+    /// Which NSWindow this menu item belongs to. Recap and Stats are two tabs of ONE window, so
+    /// they share an identity — otherwise the shell caches two windows and the second menu item
+    /// opens a duplicate showing the same content.
+    public var windowKey: String {
+        switch self {
+        case .recap, .stats: return "main"
+        case .settings, .doctor: return rawValue
         }
     }
 }
