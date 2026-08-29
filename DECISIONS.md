@@ -1965,3 +1965,52 @@ which is deciding what the MVP is.
 Verified after the day's work, on live data: pools 10 → 6, pool inflation 1.85× → 1.45×, whole-day
 suggested-vs-observed 1.17× → **1.06×**, confidence spread 3 values (9 of 14 identical) → 5 values
 across 10 cards.
+
+## "Clicking Log it doesn't actually log any time" (2026-08-28)
+
+The report was accurate. The behaviour was correct. Both things are true, and that gap is the defect.
+
+`Log it ✓` records a local decision, promotes a `user_confirmed` signal, and clears the card. It
+sends nothing to Productive, because [G1](docs/guardrails.md) says v1 never writes there — verified
+four ways: `RecapWindow` does not import `TidyIngest`, the path never reaches an HTTP client, and
+`ProductiveRequestBuilder.build` throws on any non-GET.
+
+Three things made correct behaviour read as a broken button:
+
+1. **The label promised the one thing it does not do.** Renamed to `Mark entered ✓`.
+2. **The counter it appeared to control could never move.** The header read
+   "N min already logged", sourced from `pd_time_entries` — the read-only Productive mirror. The
+   user marks a card, watches the number sit still, and concludes nothing happened. They were
+   reading the UI correctly. Now two numbers, each labelled with where it lives: "Xm in Productive ·
+   Ym marked entered here", and the second is the one the button moves.
+3. **A vanishing card was the only feedback there was.** `handle()` never set the toast that already
+   existed. Every action now says what it did, including the honest "nothing on screen changed".
+
+The empty state also asserted "already logged in Productive", which the app cannot know, and `Copy`
+produced `"60m — note"` — leaving the user to retype the client, project and task, which is the
+actual work. It now copies `Client › Project › Task · 45m · note`.
+
+**Not done: writing to Productive.** That is the v2 line. It needs audit and undo designed first,
+and it trades away the property that makes the product safe to run — that a wrong suggestion costs a
+click, not a wrong timesheet in a shared system. Left open for the user to decide deliberately
+rather than as a side effect of a bug report.
+
+### The fix I shipped this morning was broken in the case it was written for
+
+`let liveId = resolve?(suggestionId) ?? suggestionId` looks right and is not. It is a double
+optional, and `??` unwraps it to the **stale id** even when the closure deliberately returned nil.
+So "this work is no longer on this day" silently became "use the dead id", the foreign-key insert
+threw, and the caller's catch swallowed it — reproducing the exact silent failure the resolve
+closure was added to fix.
+
+It worked in the common case, which is why `decisions` started filling up and why I believed it was
+fixed. Caught by writing a test for the uncommon branch, not by re-reading the code. Now written out
+as an `if let`, with a test pinning all three cases so a tidy-up back into `??` fails.
+
+### Two groups, split on `taskId` rather than on `kind`
+
+"Ready to log" (a real Productive task to paste onto) and "Needs a task first". The split is on
+whether a task id exists, because that is the question the user answers next: *can I enter this now,
+or do I have to go make something first?* Grouping by `kind` gets it wrong — a `pool` carries a
+project and no task, so six of today's ten cards would file under "existing", sending the user to
+Productive to find nothing to log against.

@@ -173,6 +173,17 @@ public struct DecisionRecorder: Sendable {
     public struct SignalRef: Sendable { public let type: String; public let value: String
         public init(type: String, value: String) { self.type = type; self.value = value } }
 
+    /// What `record` did, so a UI can say something true about it.
+    ///
+    /// `appliedToSuggestion == false` means the decision was recorded but no card changed status —
+    /// the work is no longer on this day, so the card the user clicked will still be there after the
+    /// reload. That used to be indistinguishable from success, which is the worst possible outcome
+    /// for a button whose only feedback is the card disappearing.
+    public struct Outcome: Sendable {
+        public let decisionId: Int64
+        public let appliedToSuggestion: Bool
+    }
+
     @discardableResult
     /// `resolve` maps the id the caller is holding onto the row that represents the same work now;
     /// the recap supplies it because only the caller knows the card's attribution. Nil-returning is
@@ -180,7 +191,7 @@ public struct DecisionRecorder: Sendable {
     public func record(suggestionId: Int64?, action: String, clientId: String? = nil,
                        projectId: String? = nil, taskId: String? = nil, note: String? = nil,
                        confirmSignal: SignalRef? = nil,
-                       resolve: ((Int64?) -> Int64?)? = nil) throws -> Int64 {
+                       resolve: ((Int64?) -> Int64?)? = nil) throws -> Outcome {
         let now = Int64(clock.now.timeIntervalSince1970)
 
         // The recap regenerates its pending suggestions every 300s, so a card that has been on
@@ -192,7 +203,18 @@ public struct DecisionRecorder: Sendable {
         // Drop the dangling reference rather than the decision: the decision is the durable record
         // and its attribution (client/project/task) is what the learning loop reads. A missing
         // suggestion id costs a join, not the meaning.
-        let liveId = resolve?(suggestionId) ?? suggestionId
+        // Written out rather than as `resolve?(suggestionId) ?? suggestionId`, which LOOKS right and
+        // is not: that expression is a double optional, and `??` unwraps it to the stale id even
+        // when the closure deliberately returned nil. So "this work is gone" silently became "use
+        // the dead id", the FK insert threw, and the caller's catch swallowed it — reproducing the
+        // exact silent failure the resolve closure was added to fix. Caught by a test, not by
+        // reading the code.
+        let liveId: Int64?
+        if let resolve {
+            liveId = resolve(suggestionId)
+        } else {
+            liveId = suggestionId
+        }
         let decisionId = try db.insertDecision(Decision(
             suggestionId: liveId, action: action, clientId: clientId, projectId: projectId,
             taskId: taskId, note: note, createdAt: now))
@@ -203,7 +225,7 @@ public struct DecisionRecorder: Sendable {
         if let liveId {
             try db.updateSuggestionStatus(id: liveId, status: Self.status(for: action), now: now)
         }
-        return decisionId
+        return Outcome(decisionId: decisionId, appliedToSuggestion: liveId != nil)
     }
 
     static func status(for action: String) -> String {

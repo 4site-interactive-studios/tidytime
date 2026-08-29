@@ -85,7 +85,7 @@ public struct RecapWindow: View {
             if action == "log", suggestion.clientId != nil {
                 confirm = Self.signalToConfirm(db: env.db, suggestion: suggestion)
             }
-            try DecisionRecorder(db: env.db).record(
+            let outcome = try DecisionRecorder(db: env.db).record(
                 suggestionId: id, action: action,
                 clientId: suggestion.clientId, projectId: suggestion.projectId,
                 taskId: suggestion.taskId, confirmSignal: confirm,
@@ -98,11 +98,22 @@ public struct RecapWindow: View {
                 })
             env.logger.info("recap decision", [
                 "action": action, "suggestion": "\(id)",
+                "applied": "\(outcome.appliedToSuggestion)",
                 "confirmed": confirm.map { "\($0.type)=\($0.value)" } ?? "none",
             ])
             load()
+            // The card vanishing was the only feedback this window ever gave, which is why a button
+            // that recorded a decision but changed no status looked identical to one that worked —
+            // and why "it doesn't do anything" was a fair report. Say what happened, including when
+            // the honest answer is "nothing on screen changed".
+            show(outcome.appliedToSuggestion
+                 ? (action == "log"
+                    ? "Marked entered. Nothing was sent to Productive — enter it there yourself."
+                    : "Tossed.")
+                 : "Recorded, but that card is no longer on this day — it may still be listed.")
         } catch {
             env.logger.error("recap decision failed", ["error": "\(error)"])
+            show("Couldn't record that. See Console for details.")
         }
     }
 
@@ -157,7 +168,13 @@ public struct RecapWindow: View {
 
     private func copy(_ text: String) {
         SystemClipboard().copy(text)
-        toast = "Copied."
-        Task { try? await Task.sleep(nanoseconds: 1_500_000_000); toast = nil }
+        show("Copied — paste it into Productive.")
+    }
+
+    /// One place that shows a transient message, so every user action has feedback and they all
+    /// expire the same way.
+    private func show(_ message: String) {
+        toast = message
+        Task { try? await Task.sleep(nanoseconds: 2_600_000_000); toast = nil }
     }
 }

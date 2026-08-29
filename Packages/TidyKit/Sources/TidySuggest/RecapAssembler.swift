@@ -11,7 +11,15 @@ public struct RecapDay: Sendable, Equatable {
     public let questions: [ResolutionQuestion]     // ask-once unresolved signals
     public let observedSeconds: Int
     public let attributedSeconds: Int
+    /// Minutes this person has in **Productive**, from the read-only mirror.
     public let loggedMinutes: Int
+    /// Minutes marked entered **here**, today.
+    ///
+    /// The header used to show `loggedMinutes` alone under the words "already logged". That number
+    /// comes from `pd_time_entries` and v1 never writes to Productive, so it cannot move when the
+    /// user clicks — they marked a card, watched the counter stay put, and reasonably concluded the
+    /// button was broken. Two numbers, each labelled with where it lives, is the honest display.
+    public let markedEnteredMinutes: Int
     /// How fragmented the day was — switches, dwell, thrash (from raw samples, not sessions).
     public let contextSwitches: ContextSwitchMetrics
     /// Human names for the ids a suggestion carries, keyed by id.
@@ -21,6 +29,19 @@ public struct RecapDay: Sendable, Equatable {
     /// `18609405`. Resolved here rather than in the view so `RecapView` stays a pure function of
     /// its input and needs no database.
     public var names: [String: String] = [:]
+    /// Cards that name a real Productive task — paste the time onto it and you are done.
+    ///
+    /// The split is on `taskId`, not on `kind`, because that is the question the user is actually
+    /// answering next: *can I enter this right now, or do I have to go make something first?* Kind
+    /// gets it wrong — a `pool` carries a project but no task, so grouping by kind files six of
+    /// today's ten cards under "existing" where the user would open Productive and find nothing to
+    /// log against.
+    public var readyToLog: [Suggestion] { suggestions.filter { $0.taskId != nil } }
+
+    /// Cards with no task behind them: `new_task` proposals, and pools/sessions that got as far as
+    /// a project. Each needs a task created in Productive before its time has anywhere to go.
+    public var needsATask: [Suggestion] { suggestions.filter { $0.taskId == nil } }
+
     /// % of observed time that got attributed to a client (capture health).
     public var attributionRate: Double {
         observedSeconds > 0 ? Double(attributedSeconds) / Double(observedSeconds) : 0
@@ -75,12 +96,15 @@ public struct RecapAssembler: Sendable {
         // Only pending cards. The table keeps logged/tossed rows as the decision record, but a card
         // the user already dismissed must not keep rendering with live buttons — `MenuBarPopover`
         // already filters this way and the recap did not, so its count and the popover's disagreed.
-        let pending = try db.suggestions(day: day).filter { $0.status == "pending" }
+        let all = try db.suggestions(day: day)
+        let pending = all.filter { $0.status == "pending" }
+        let markedEntered = all.filter { $0.status == "logged" }.reduce(0) { $0 + $1.minutes }
 
         var recap = RecapDay(
             day: day, timeline: sessions, suggestions: pending,
             questions: try db.openQuestions(), observedSeconds: observed,
-            attributedSeconds: attributed, loggedMinutes: logged, contextSwitches: switches)
+            attributedSeconds: attributed, loggedMinutes: logged,
+            markedEnteredMinutes: markedEntered, contextSwitches: switches)
         recap.names = Self.names(for: pending, db: db)
         return recap
     }

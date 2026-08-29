@@ -38,7 +38,12 @@ public struct RecapView: View {
         let cs = recap.contextSwitches
         return VStack(alignment: .leading, spacing: 2) {
             Text("Recap — \(recap.day)").font(.title2).bold()
-            Text("\(observedMin) min observed · \(attributedPct)% attributed · \(recap.loggedMinutes) min already logged")
+            // "N min already logged" alone read as a progress bar for this window's buttons. It is
+            // not: it comes from the Productive mirror, and v1 never writes to Productive, so it
+            // could not move when the user marked a card. Say which number lives where.
+            Text("\(observedMin) min observed · \(attributedPct)% attributed")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("\(recap.loggedMinutes)m in Productive · \(recap.markedEnteredMinutes)m marked entered here")
                 .font(.caption).foregroundStyle(.secondary)
             Text("\(cs.switchCount) context switches · \(String(format: "%.1f", cs.switchesPerActiveHour))/hr · \(Int(cs.fragmentation * 100))% brief · longest focus \(cs.longestFocusSeconds / 60)m")
                 .font(.caption).foregroundStyle(.secondary)
@@ -89,7 +94,14 @@ public struct RecapView: View {
             return "That usually means the Productive mirror is empty or has no client vocabulary yet — "
                  + "open Doctor and check the productive row. Answering a question below also teaches it."
         }
-        return "Everything attributed today is either already logged in Productive or has been handled."
+        return "Nothing left to review — every suggestion for today has been marked entered or tossed."
+    }
+
+    private func sectionHeader(_ title: String, _ count: Int, _ hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(title) (\(count))").font(.subheadline).bold()
+            Text(hint).font(.caption2).foregroundStyle(.secondary).textCase(nil)
+        }.padding(.top, 4)
     }
 
     private var stack: some View {
@@ -97,8 +109,30 @@ public struct RecapView: View {
             Text("Suggestions").font(.headline)
             List {
                 if recap.suggestions.isEmpty { emptyState }
-                ForEach(recap.suggestions, id: \.id) { s in
-                    SuggestionCard(suggestion: s, names: recap.names, onAction: onAction, onCopy: onCopy)
+                // Two groups, because they are two different jobs. "Ready to log" is paste-and-save;
+                // "Needs a task first" means leaving for Productive to create something before the
+                // time has anywhere to go. Mixing them made every card look equally actionable.
+                if !recap.readyToLog.isEmpty {
+                    Section {
+                        ForEach(recap.readyToLog, id: \.id) { s in
+                            SuggestionCard(suggestion: s, names: recap.names,
+                                           onAction: onAction, onCopy: onCopy)
+                        }
+                    } header: {
+                        sectionHeader("Ready to log", recap.readyToLog.count,
+                                      "these name a task — copy, paste, save")
+                    }
+                }
+                if !recap.needsATask.isEmpty {
+                    Section {
+                        ForEach(recap.needsATask, id: \.id) { s in
+                            SuggestionCard(suggestion: s, names: recap.names,
+                                           onAction: onAction, onCopy: onCopy)
+                        }
+                    } header: {
+                        sectionHeader("Needs a task first", recap.needsATask.count,
+                                      "no task to log against yet — create one in Productive")
+                    }
                 }
                 if !recap.questions.isEmpty {
                     Section("Questions") {
@@ -141,7 +175,11 @@ struct SuggestionCard: View {
                 if let link = suggestion.deepLink, let url = URL(string: link) {
                     Link("Open in Productive", destination: url)
                 }
-                Button("Log it ✓") { onAction(suggestion, "log") }
+                // Renamed from "Log it ✓". v1 never writes to Productive (G1) — this records that
+                // YOU entered it, clears the card, and teaches the classifier. Calling that "Log it"
+                // promised the one thing it does not do, and the user who reported the button as
+                // broken was reading the label correctly.
+                Button("Mark entered ✓") { onAction(suggestion, "log") }
                 Button("Toss") { onAction(suggestion, "toss") }
             }.buttonStyle(.borderless).font(.caption)
         }.padding(.vertical, 4)
@@ -156,8 +194,22 @@ struct SuggestionCard: View {
         }
         return suggestion.taskId ?? suggestion.projectId ?? suggestion.clientId ?? suggestion.kind
     }
+    /// Everything the manual entry needs, in the order the Productive form asks for it. The old
+    /// payload was `"60m — note"`, which left the user to retype the client, project and task by
+    /// hand — the actual work, and the reason "copy" did not save anyone anything.
     private var copyPayload: String {
-        "\(suggestion.minutes)m — \(suggestion.note ?? "")"
+        var parts: [String] = []
+        let path = [suggestion.clientId, suggestion.projectId, suggestion.taskId]
+            .compactMap { $0 }
+            .compactMap { names[$0] }
+            .filter { !$0.isEmpty }
+        if !path.isEmpty { parts.append(path.joined(separator: " › ")) }
+        else if suggestion.kind == "new_task", let t = suggestion.proposedTaskTitle {
+            parts.append("(new task) \(t)")
+        }
+        parts.append("\(suggestion.minutes)m")
+        if let note = suggestion.note, !note.isEmpty { parts.append(note) }
+        return parts.joined(separator: " · ")
     }
 }
 #endif
