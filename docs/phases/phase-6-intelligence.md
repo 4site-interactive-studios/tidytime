@@ -56,7 +56,7 @@ router + ledger ship WITH the first cloud call, never after**:
 | 6 | **Transcript splitting** (meeting split → per-client segments) | `TidyAI` + `TidySuggest` | rung 4 job `transcript_split` |
 | 7 | **Nudges** (`nudges` table) | `TidySurface` + `App/` | live surface |
 | 8 | **Learning-loop promotions** wired into rungs 3–5 and nudges | `TidyUnderstand` | few-shot + threshold tuning |
-| 9 | **Dashboard** incl. AI-overhead panel + CSV export | `TidySurface` | metrics |
+| 9 | **Stats tab** incl. AI-overhead panel + CSV export | `TidySurface` | metrics |
 
 Everything cloud passes two hard gates at a single metered call site: the **sensitivity gate**
 (G2) then the **budget check** (G5). There is no code path to a provider that skips either — see
@@ -458,7 +458,11 @@ the AI rungs and nudges. Base mechanics: [understand-layer.md §4](../architectu
   before nudging again — that is why acceptance #4's "stop poking dismissed contexts" holds. A
   concrete rule: `effective = base + step * dismiss_count`, clamped ≤ 0.95.
 
-## 12. Dashboard incl. AI-overhead panel
+## 12. Stats tab incl. AI-overhead panel
+
+> Shipped as the **Stats** tab of the main window (`MainWindow`), not a window of its own —
+> the type is still `DashboardView` and the read models are still `DashboardBuilder` /
+> `AIDashboard`. Only the user-facing name changed.
 
 Local-only, weekly, no targets ([surface-layer.md](../architecture/surface-layer.md)). Four
 numbers + one chart from `daily_rollups`, plus the **AI-overhead panel** driven by `ai_calls`:

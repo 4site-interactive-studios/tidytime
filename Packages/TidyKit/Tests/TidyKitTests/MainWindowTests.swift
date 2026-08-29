@@ -50,6 +50,53 @@ final class MainWindowTests: XCTestCase {
         XCTAssertTrue(src.contains("Button(\"Recap…\")"))
     }
 
+    // MARK: The day the recap shows
+
+    /// `@State private var day = Date()` is seeded ONCE, when the view's state storage is created.
+    /// The window is cached for the life of the process and this app launches at login and runs for
+    /// days — so on day two the 17:00 scheduler fronted a window still showing day one, and the
+    /// product's one daily prompt offered yesterday's work.
+    @MainActor
+    func testTheDayLivesOnTheModelSoItCanBeReset() {
+        let stale = Date(timeIntervalSince1970: 1_700_000_000)
+        let model = MainWindowModel(tab: .stats, day: stale)
+        XCTAssertEqual(model.day, stale)
+        model.day = Date()
+        XCTAssertGreaterThan(model.day, stale, "an explicit open must be able to move it to today")
+    }
+
+    /// Pins the reset, which is invisible: nothing fails to compile if it is dropped, the recap just
+    /// quietly shows the wrong day once a day has passed.
+    func testShellResetsTheDayWhenTheRecapIsOpened() throws {
+        let src = try String(
+            contentsOf: TestSupport.repoRoot().appendingPathComponent("App/TidyTimeApp.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(src.contains("mainModel.day = Date()"))
+        let reset = try XCTUnwrap(src.range(of: "mainModel.day = Date()"))
+        let frontExisting = try XCTUnwrap(src.range(of: "if let existing = windows[window.windowKey]"))
+        XCTAssertLessThan(reset.lowerBound, frontExisting.lowerBound,
+                          "resetting after the early return would never run on an open window")
+    }
+
+    /// The recap must re-query when the shell moves the day, or the toolbar date changes and the
+    /// cards keep showing the old day's work.
+    func testRecapReloadsWhenTheDayChanges() throws {
+        let src = try String(
+            contentsOf: TestSupport.repoRoot()
+                .appendingPathComponent("Packages/TidyKit/Sources/TidySurface/RecapWindow.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(src.contains("onChange(of: model.day)"))
+        XCTAssertFalse(src.contains("@State private var day"),
+                       "view state seeded once cannot survive a window that outlives the day")
+        // Comments explain the rule, so they must not trip the grep that enforces it — the same
+        // trap GuardrailEnforcementTests solves the same way.
+        let code = src.split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        XCTAssertFalse(code.contains("Calendar.current"),
+                       "every day computation in this view must use the configured org timezone")
+    }
+
     // MARK: The model the menu bar writes to
 
     /// A `@State` inside the view could not be reached from the menu bar, and rebuilding the window

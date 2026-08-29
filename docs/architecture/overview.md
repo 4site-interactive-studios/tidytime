@@ -86,8 +86,11 @@ Why this shape:
   only thing that ever holds Accessibility/Automation permission — no second binary to sign,
   grant, and keep in sync.
 
-The scene is a SwiftUI `MenuBarExtra`; there is no `WindowGroup` dock app. Windows (recap,
-dashboard, settings) are opened on demand from the menu bar.
+The scene is a SwiftUI `MenuBarExtra`; there is no `WindowGroup` dock app, and no SwiftUI
+`Window` scenes either — `MenuBarExtra` has no `openWindow` for auxiliary panels, so the app shell
+manages `NSWindow`s directly and caches them by `AppWindow.windowKey` (`App/TidyTimeApp.swift`).
+Four menu items, three windows: **Recap** and **Stats** are two tabs of one window (key `"main"`),
+alongside Settings and Doctor. See [surface-layer.md](surface-layer.md).
 
 ### Launch at login (`SMAppService`)
 

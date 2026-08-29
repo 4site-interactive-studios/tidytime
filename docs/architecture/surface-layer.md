@@ -1,7 +1,7 @@
 # Surface layer (TidySurface)
 
 The presentation layer: the menu bar icon and popover, live nudges, the away prompt, the
-end-of-day recap window, the weekly dashboard, and Settings. It renders what the layers below
+end-of-day recap, the weekly Stats tab, and Settings. It renders what the layers below
 have already produced and records the user's decisions — it does **no** network I/O and makes
 **no** direct provider calls.
 
@@ -67,8 +67,11 @@ If a view needs data that isn't in the store yet, that is a gap in `TidySuggest`
 
 ## 2. Scene & view structure
 
-The app declares one `MenuBarExtra` plus on-demand windows. Full-size surfaces (recap,
-dashboard) are `Window` scenes opened by id; Settings uses the standard `Settings` scene.
+The app declares exactly one SwiftUI scene — a `MenuBarExtra`. There are no `Window` scenes and
+no `Settings` scene: `MenuBarExtra` has no `openWindow` for auxiliary panels in a menu-bar-only app,
+so `AppLauncher` creates `NSWindow`s on demand and caches them by `AppWindow.windowKey`. **Four menu
+items, three windows** — Recap and Stats share the key `"main"` and are two tabs of one window,
+alongside Settings and Doctor.
 
 ```swift
 // App/TidyTimeApp.swift  (target: TidyTimeApp)
@@ -113,7 +116,7 @@ window. Everything else is SwiftUI.
 TidySurface/
   MenuBar/
     MenuBarIcon.swift            enum MenuBarIcon  → SF Symbol + badge
-    MenuBarPopoverView.swift     "today so far", pending count, pause, open recap/dashboard/settings
+    MenuBarPopoverView.swift     "today so far", pending count, pause, open recap/stats/settings
     TodaySoFarView.swift         observed-vs-logged bar + numbers
   Nudge/
     NudgePresenter.swift         builds UNNotificationRequest; handles action responses
@@ -129,8 +132,9 @@ TidySurface/
     SuggestionCardView.swift     the card in PLAN §8 "anatomy"
     PoolsSectionView.swift       rolled-up micro-work
     ResolutionQuestionsView.swift "which client is …?" at the bottom
-  Dashboard/
-    DashboardView.swift          weekly metrics + AI overhead panel
+  Main/
+    MainWindow.swift             hosts Recap + Stats as two tabs of one window
+    DashboardView.swift          the Stats tab: weekly metrics + AI overhead panel
     MetricTileView.swift         one number, no target
     ObservedVsLoggedChartView.swift
     AIOverheadPanelView.swift    from ai_calls; CSV export button
@@ -432,7 +436,7 @@ WHERE  person_id = :self AND date = :today;
 ```
 
 Client color: assign deterministically from `client_id` (hash → curated palette) so a client
-keeps the same hue across the timeline, dashboard, and future sessions. Keep the palette
+keeps the same hue across the timeline, Stats, and future sessions. Keep the palette
 colorblind-safe and give each block a text label — color is never the only signal.
 
 ### 7.2 Right — suggestion stack

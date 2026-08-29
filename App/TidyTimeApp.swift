@@ -109,7 +109,14 @@ final class AppLauncher: ObservableObject {
         // The menu item names a TAB, not just a window. Set it before fronting, so clicking
         // "Stats…" on an open window showing the recap actually lands on Stats.
         if let tab = MainTab(window) {
-            if tab == .recap { try? env.refreshToday() }
+            if tab == .recap {
+                try? env.refreshToday()
+                // Explicitly asking for the recap means "show me today". The window is cached for
+                // the life of the process, so without this the 17:00 scheduler on day two fronted a
+                // window still showing day one. Paging with the chevrons still persists while the
+                // window stays open — this only resets on an explicit open.
+                mainModel.day = Date()
+            }
             mainModel.tab = tab
         }
         if let existing = windows[window.windowKey] {

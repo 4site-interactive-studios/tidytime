@@ -2058,3 +2058,35 @@ earlier today, in the same file.
 **Not verified by me:** the tab routing is covered by tests and by reading the shell, but I could not
 click the menu items — `osascript` lacks Accessibility access on this machine, and granting it needs
 the user's password. Build, install, launch and crash-freedom were checked.
+
+### What the adversarial review of that change caught
+
+Four findings survived refutation out of fifteen examined. Three were documentation; one was a real
+product defect, and it is the interesting one.
+
+**The daily recap was showing yesterday.** `RecapWindow` held `@State private var day = Date()`,
+which is seeded **once**, when the view's state storage is created. The window is cached for the life
+of the process (`isReleasedWhenClosed = false`, never removed from the cache) and this app launches
+at login and runs for days — so on day two the 17:00 scheduler fronted a window still showing day
+one, with the forward chevron enabled because `day` was no longer today. The product's one daily
+prompt was offering yesterday's work.
+
+Pre-existing rather than introduced here — the window was always cached — but combining the windows
+guarantees the recap view now outlives many days, so it stopped being theoretical. The day moved to
+`MainWindowModel` beside `tab`, and the shell resets it on any explicit "open the recap" (menu item
+and scheduler alike) while chevron paging still persists while the window stays open.
+
+Found alongside it: the chevron's "is this today" test used `Calendar.current`, while every other day
+computation in the view uses the configured org timezone — so near midnight in a non-local zone the
+button disagreed with the date rendered beside it.
+
+**And a contradiction I introduced two commits ago.** Correcting `surface-layer.md`'s code block to
+say the shell uses no SwiftUI `Window` scenes left the sentence *introducing* that block still
+claiming recap and dashboard are `Window` scenes opened by id. The section disagreed with itself
+within 25 lines, and a reader takes the prose over a code comment. Fixing a doc-vs-reality defect by
+editing the example and not the claim above it is its own small version of the same mistake.
+
+Also swept: `overview.md`'s topology paragraph, four more stale "dashboard" names in
+`surface-layer.md`, the phase-6 plan (the next phase someone builds from, so the wrong name there
+would propagate into new code), and the public site's captions. `site/assets/dashboard.svg` keeps its
+filename — it is not a user-visible claim, and renaming it only churns the `img src`.

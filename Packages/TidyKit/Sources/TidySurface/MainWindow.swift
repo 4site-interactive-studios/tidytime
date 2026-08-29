@@ -46,7 +46,24 @@ public enum MainTab: String, CaseIterable, Identifiable, Sendable {
 @available(macOS 14.0, *)
 public final class MainWindowModel: ObservableObject {
     @Published public var tab: MainTab
-    public init(tab: MainTab = .recap) { self.tab = tab }
+
+    /// The day the recap is showing.
+    ///
+    /// This lived in `RecapWindow` as `@State private var day = Date()`, which is seeded **once**,
+    /// when the view's state storage is first created. The window is cached for the life of the
+    /// process (`isReleasedWhenClosed = false`, never removed from the cache) and this app launches
+    /// at login and runs for days — so on day two the 17:00 recap fronted a window still showing day
+    /// one, with the forward chevron enabled because `day` was no longer today. The product's one
+    /// daily prompt was offering yesterday's work.
+    ///
+    /// Out here, the shell can reset it whenever the user (or the scheduler) explicitly asks for the
+    /// recap, while paging with the chevrons still persists for as long as the window stays open.
+    @Published public var day: Date
+
+    public init(tab: MainTab = .recap, day: Date = Date()) {
+        self.tab = tab
+        self.day = day
+    }
 }
 
 @available(macOS 14.0, *)
@@ -64,7 +81,7 @@ public struct MainWindow: View {
         // stepping over to Stats and back does not reset the recap to today and re-run its query.
         // It also matches SettingsView, which is already tabbed, and gives keyboard navigation free.
         TabView(selection: $model.tab) {
-            RecapWindow(env: env)
+            RecapWindow(env: env, model: model)
                 .tabItem { Label(MainTab.recap.title, systemImage: MainTab.recap.symbol) }
                 .tag(MainTab.recap)
             DashboardView(env: env)

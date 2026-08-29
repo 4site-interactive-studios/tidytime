@@ -35,7 +35,8 @@ Getting started · Library status.
 
 - `recap-window.svg` — end-of-day recap (timeline + suggestion stack + questions)
 - `menubar.svg` — menu bar popover
-- `dashboard.svg` — weekly dashboard incl. AI overhead
+- `dashboard.svg` — the **Stats** tab: weekly metrics incl. AI overhead
+  (filename kept; renaming it would only churn the `img src` for no user-visible gain)
 - `context-switches.svg` — context-switching tiles + the **dwell strip**
 
 ## Maintenance rule (read before editing)

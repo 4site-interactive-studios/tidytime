@@ -12,11 +12,18 @@ import TidyUnderstand
 @available(macOS 14.0, *)
 public struct RecapWindow: View {
     @ObservedObject var env: AppEnvironment
-    @State private var day: Date = Date()
+    /// The selected day lives on the shared model, not in `@State` — see `MainWindowModel.day` for
+    /// why (this view outlives the day it was created on).
+    @ObservedObject var model: MainWindowModel
     @State private var recap: RecapDay?
     @State private var toast: String?
 
-    public init(env: AppEnvironment) { self.env = env }
+    private var day: Date { model.day }
+
+    public init(env: AppEnvironment, model: MainWindowModel) {
+        self.env = env
+        self.model = model
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +45,9 @@ public struct RecapWindow: View {
         }
         .frame(minWidth: 860, minHeight: 560)
         .onAppear(perform: load)
+        // The shell resets the day when the recap is opened explicitly; without this the reset
+        // changes the toolbar date and leaves the cards showing the old day's work.
+        .onChange(of: model.day) { load() }
     }
 
     private var toolbar: some View {
@@ -46,7 +56,7 @@ public struct RecapWindow: View {
             Text(AppEnvironment.dayString(day, env.timeZone))
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
             Button { shift(1) } label: { Image(systemName: "chevron.right") }
-                .disabled(Calendar.current.isDateInToday(day))
+                .disabled(Self.calendar(env.timeZone).isDateInToday(day))
             Spacer()
             Button("Re-run pipeline") { env.runPipelineOnce(); load() }
                 .help("Rebuild sessions and re-classify this day from the captured samples.")
@@ -55,8 +65,15 @@ public struct RecapWindow: View {
     }
 
     private func shift(_ days: Int) {
-        day = Calendar.current.date(byAdding: .day, value: days, to: day) ?? day
-        load()
+        model.day = Self.calendar(env.timeZone).date(byAdding: .day, value: days, to: day) ?? day
+        // `onChange(of: model.day)` reloads; calling load() here too would double-query.
+    }
+
+    /// Every other day computation in this view uses the configured org timezone; the chevron's
+    /// "is this today" test used `Calendar.current`, so near midnight in a non-local zone it
+    /// disagreed with the date displayed beside it.
+    static func calendar(_ tz: TimeZone) -> Calendar {
+        var c = Calendar(identifier: .gregorian); c.timeZone = tz; return c
     }
 
     private func load() {
