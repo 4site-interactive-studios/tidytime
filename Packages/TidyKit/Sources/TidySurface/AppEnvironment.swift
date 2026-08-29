@@ -293,6 +293,7 @@ public final class AppEnvironment: ObservableObject {
                                          roundUpBias: config.suggestions.roundUpBias),
                 standaloneThresholdMinutes: config.suggestions.standaloneThresholdMinutes,
                 poolThresholdMinutes: config.suggestions.poolThresholdMinutes,
+                gate: SensitivityGate(config: config),
                 selfPersonId: (try? db.selfPerson())?.id,
                 organization: config.organization,
                 deepLinkPattern: config.productive.taskDeepLinkPattern)

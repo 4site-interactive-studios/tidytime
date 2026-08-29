@@ -32,7 +32,8 @@ public struct ChromeAdapter: BrowserAdapter {
             if (count of windows) = 0 then return ""
             set theURL to URL of active tab of front window
             set theTitle to title of active tab of front window
-            return theURL & "\\n" & theTitle
+            set theMode to mode of front window
+            return theURL & "\\n" & theTitle & "\\n" & theMode
         end tell
         """
         guard let out = Self.run(script), !out.isEmpty else { return nil }
@@ -40,7 +41,10 @@ public struct ChromeAdapter: BrowserAdapter {
         let url = parts.first ?? ""
         guard !url.isEmpty else { return nil }
         let title = parts.count > 1 ? parts[1] : nil
-        return BrowserTab(url: url, title: title)
+        // Chrome reports "incognito" or "normal". Anything unrecognised is treated as normal:
+        // guessing "private" on an unknown value would silently stop recording everything.
+        let isPrivate = parts.count > 2 && parts[2].trimmingCharacters(in: .whitespaces) == "incognito"
+        return BrowserTab(url: url, title: title, isPrivate: isPrivate)
     }
 
     public func visiblePageText() -> String? {
@@ -241,7 +245,8 @@ public final class LiveCaptureController {
         let recorder = SampleRecorder(db: db, policy: PageTextPolicy(maxBytes: config.capture.pageTextMaxBytes),
                                       browserName: config.capture.browser)
         self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder,
-                                              policy: ContextSignature.Policy(config.capture))
+                                              policy: ContextSignature.Policy(config.capture),
+                                              exclusions: CaptureExclusions(config: config))
         self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
         self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
     }

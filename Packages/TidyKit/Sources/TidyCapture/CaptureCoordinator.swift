@@ -19,6 +19,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private let browser: BrowserAdapter?
     private let recorder: SampleRecorder
     private let policy: ContextSignature.Policy
+    private let exclusions: CaptureExclusions
 
     private let lock = NSLock()
     private var lastSignature: String?
@@ -27,11 +28,13 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var currentContext: FrontmostContext?
 
     public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder,
-                policy: ContextSignature.Policy = .default) {
+                policy: ContextSignature.Policy = .default,
+                exclusions: CaptureExclusions = CaptureExclusions()) {
         self.reader = reader
         self.browser = browser
         self.recorder = recorder
         self.policy = policy
+        self.exclusions = exclusions
     }
 
     /// Detection tick. Records a new sample iff the observed context changed. Returns true if it did.
@@ -39,8 +42,12 @@ public final class CaptureCoordinator: @unchecked Sendable {
     public func poll() throws -> Bool {
         guard let observed = reader.current() else { return false }
         var ctx = observed
+        if exclusions.excludes(appBundleId: ctx.appBundleId) { return dropCurrent() }
         // Enrich a browser context with the active tab's URL/title (lightweight — no page text).
         if ctx.isBrowser, let browser, let tab = browser.activeTab() {
+            // Excluded BEFORE the URL and title are copied onto the context. Recording the row and
+            // filtering later would already have put the thing on disk, which is the whole point.
+            if tab.isPrivate || exclusions.excludes(url: tab.url) { return dropCurrent() }
             ctx.url = tab.url
             if let title = tab.title, !title.isEmpty { ctx.windowTitle = title }
         }
@@ -75,6 +82,22 @@ public final class CaptureCoordinator: @unchecked Sendable {
         return true
     }
 
+    /// Forget the current context without recording anything.
+    ///
+    /// Clearing `currentSampleId` matters as much as skipping the insert: a later content tick reads
+    /// it, and leaving the previous sample's id in place would file the excluded page's text under
+    /// the last thing that *was* recorded. Clearing `lastSignature` means stepping back out of the
+    /// excluded window records a fresh sample rather than being swallowed as "unchanged".
+    private func dropCurrent() -> Bool {
+        lock.lock()
+        currentContext = nil
+        currentSampleId = nil
+        lastSignature = nil
+        lastContentURL = nil
+        lock.unlock()
+        return false
+    }
+
     /// Content tick. Captures + stores page text for the current browser sample (deduped). No-op for
     /// non-browser contexts or when scripting is unavailable.
     public func captureContent() throws {
@@ -83,6 +106,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
         let id = currentSampleId
         lock.unlock()
         guard let ctx, ctx.isBrowser, let id, let browser, let url = ctx.url,
+              !exclusions.excludes(url: url), !exclusions.excludes(appBundleId: ctx.appBundleId),
               let text = browser.visiblePageText(), !text.isEmpty else { return }
         _ = try recorder.recordPageText(sampleId: id, url: url, title: ctx.windowTitle, rawText: text)
         lock.lock()

@@ -1,6 +1,7 @@
 import Foundation
 import TidyCore
 import TidyStore
+import TidyUnderstand
 
 /// Turns a day's classified sessions into `suggestions` + `pools`:
 ///  - group by task → project → client,
@@ -13,6 +14,15 @@ public struct SuggestionEngine: Sendable {
     private let rounding: RoundingPolicy
     private let standaloneThresholdMinutes: Int
     private let poolThresholdMinutes: Int
+    /// G2, applied to the text that LEAVES this machine.
+    ///
+    /// The gate was specified to run before rungs 3-4 and note generation — cloud sends, which are
+    /// Phase 6 and dark, so it correctly has nothing to guard there yet. But it had no production
+    /// caller at all, and meanwhile every window title was being copied verbatim into
+    /// `suggestions.note` and `proposed_task_title`, which are precisely the fields the user pastes
+    /// into Productive. "Re: Jane's performance review - Gmail" reaching a shared company system is
+    /// a worse outcome than the cloud send the gate was written to prevent.
+    private let gate: SensitivityGate
     private let selfPersonId: String?
     /// Enough config to build a task deep link. Optional so tests need not supply one; when absent
     /// the column stays NULL and the UI hides the button, which is the correct degradation.
@@ -20,11 +30,13 @@ public struct SuggestionEngine: Sendable {
     private let deepLinkPattern: String?
 
     public init(db: AppDatabase, clock: TidyClock = SystemClock(), rounding: RoundingPolicy = RoundingPolicy(),
-                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 5, selfPersonId: String? = nil,
+                standaloneThresholdMinutes: Int = 15, poolThresholdMinutes: Int = 5,
+                gate: SensitivityGate = SensitivityGate(terms: []), selfPersonId: String? = nil,
                 organization: Config.Organization? = nil, deepLinkPattern: String? = nil) {
         self.db = db; self.clock = clock; self.rounding = rounding
         self.standaloneThresholdMinutes = standaloneThresholdMinutes
-        self.poolThresholdMinutes = poolThresholdMinutes; self.selfPersonId = selfPersonId
+        self.poolThresholdMinutes = poolThresholdMinutes; self.gate = gate
+        self.selfPersonId = selfPersonId
         self.organization = organization; self.deepLinkPattern = deepLinkPattern
     }
 
@@ -200,16 +212,24 @@ public struct SuggestionEngine: Sendable {
         return summary
     }
 
+    /// Titles safe to repeat outside this machine. Fails closed like the rest of G2: a title that
+    /// trips the gate is dropped rather than redacted in place, because a partially-scrubbed string
+    /// still carries the shape of what it was.
+    private func safeTitles(_ g: Group) -> [String] {
+        Array(Set(g.titles)).filter { !gate.isSensitive($0) }.sorted()
+    }
     private func note(for g: Group) -> String {
-        let distinct = Array(Set(g.titles)).prefix(3)
+        let distinct = safeTitles(g).prefix(3)
         return distinct.isEmpty ? "Worked on this client's project." : distinct.joined(separator: "; ")
     }
     private func poolNote(_ g: Group) -> String {
-        let distinct = Array(Set(g.titles)).prefix(4)
+        let distinct = safeTitles(g).prefix(4)
         return distinct.isEmpty ? "Assorted small tasks." : "Assorted: " + distinct.joined(separator: "; ")
     }
+    /// A proposed task title becomes a real task in a shared system, so the bland fallback is the
+    /// right answer whenever the only material available is sensitive.
     private func proposedTitle(_ g: Group) -> String {
-        g.titles.first ?? "New task"
+        safeTitles(g).first ?? "New task"
     }
     private func sourceRefs(_ ids: [Int64]) -> String {
         let list = ids.map(String.init).joined(separator: ",")

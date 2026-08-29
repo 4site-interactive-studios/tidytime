@@ -249,6 +249,28 @@ public struct SettingsView: View {
                 }
                 Text("Edit these lists in config.json; a built-in floor list applies regardless.")
                     .font(.caption).foregroundStyle(.secondary)
+
+                Divider().padding(.vertical, 4)
+
+                // The gate above controls what LEAVES this machine. These control what is written
+                // to it at all — a different and stronger promise, and worth stating plainly rather
+                // than leaving the user to infer it from two list headings.
+                Text("Never captured")
+                    .font(.headline)
+                Text("Private browsing windows are never recorded — no setting required. These lists exclude everything else, before anything is written to the database.")
+                    .font(.caption).foregroundStyle(.secondary)
+                group("Excluded hosts (\(env.config.capture.excludedHosts.count))") {
+                    Text(env.config.capture.excludedHosts.isEmpty
+                         ? "(none) — add e.g. \"chase.com\"; subdomains are covered"
+                         : env.config.capture.excludedHosts.joined(separator: ", "))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                group("Excluded apps (\(env.config.capture.excludedApps.count))") {
+                    Text(env.config.capture.excludedApps.isEmpty
+                         ? "(none) — add bundle ids, e.g. \"com.agilebits.onepassword7\""
+                         : env.config.capture.excludedApps.joined(separator: ", "))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
             }
             .padding(20)
         }

@@ -200,11 +200,18 @@ public struct Config: Codable, Sendable, Equatable {
         /// discarded when comparing contexts. Empty by default: all query params are volatile churn
         /// unless you opt them in. An allowlist fails closed; a denylist would fail open.
         public var identityQueryKeys: [String]
+        /// Hosts never recorded, matched on registrable suffix (`chase.com` covers
+        /// `secure.chase.com`). Applied at the capture boundary, before the row is written — not a
+        /// display filter, because a raw title on disk is the thing being avoided.
+        public var excludedHosts: [String]
+        /// Applications never recorded, by bundle id.
+        public var excludedApps: [String]
         public var killSwitches: KillSwitches
         public init(browser: String = "chrome", heartbeatSeconds: Int = 30,
                     detectionIntervalSeconds: Double = 1.0, contentIntervalSeconds: Double = 20.0,
                     idleThresholdSeconds: Int = 600, pageTextMaxBytes: Int = 4096,
                     separateChatsByPath: Bool = true, identityQueryKeys: [String] = [],
+                    excludedHosts: [String] = [], excludedApps: [String] = [],
                     killSwitches: KillSwitches = .init()) {
             self.browser = browser; self.heartbeatSeconds = heartbeatSeconds
             self.detectionIntervalSeconds = detectionIntervalSeconds
@@ -212,6 +219,7 @@ public struct Config: Codable, Sendable, Equatable {
             self.idleThresholdSeconds = idleThresholdSeconds; self.pageTextMaxBytes = pageTextMaxBytes
             self.separateChatsByPath = separateChatsByPath
             self.identityQueryKeys = identityQueryKeys
+            self.excludedHosts = excludedHosts; self.excludedApps = excludedApps
             self.killSwitches = killSwitches
         }
         enum CodingKeys: String, CodingKey {
@@ -221,6 +229,7 @@ public struct Config: Codable, Sendable, Equatable {
             case idleThresholdSeconds = "idle_threshold_seconds", pageTextMaxBytes = "page_text_max_bytes"
             case separateChatsByPath = "separate_chats_by_path"
             case identityQueryKeys = "identity_query_keys"
+            case excludedHosts = "excluded_hosts", excludedApps = "excluded_apps"
             case killSwitches = "kill_switches"
         }
         public init(from d: Decoder) throws {
@@ -233,6 +242,8 @@ public struct Config: Codable, Sendable, Equatable {
             pageTextMaxBytes = try c.decodeIfPresent(Int.self, forKey: .pageTextMaxBytes) ?? z.pageTextMaxBytes
             separateChatsByPath = try c.decodeIfPresent(Bool.self, forKey: .separateChatsByPath) ?? z.separateChatsByPath
             identityQueryKeys = try c.decodeIfPresent([String].self, forKey: .identityQueryKeys) ?? z.identityQueryKeys
+            excludedHosts = try c.decodeIfPresent([String].self, forKey: .excludedHosts) ?? z.excludedHosts
+            excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? z.excludedApps
             killSwitches = try c.decodeIfPresent(KillSwitches.self, forKey: .killSwitches) ?? z.killSwitches
         }
     }

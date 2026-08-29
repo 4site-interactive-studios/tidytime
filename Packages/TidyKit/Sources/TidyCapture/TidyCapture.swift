@@ -23,7 +23,13 @@ public struct FrontmostContext: Sendable, Equatable {
 public struct BrowserTab: Sendable, Equatable {
     public var url: String
     public var title: String?
-    public init(url: String, title: String? = nil) { self.url = url; self.title = title }
+    /// True for an incognito / private window. Nothing about such a tab is recorded — see
+    /// `CaptureExclusions`. Defaults to false so an adapter that cannot tell keeps working, but the
+    /// live Chrome adapter does read it.
+    public var isPrivate: Bool
+    public init(url: String, title: String? = nil, isPrivate: Bool = false) {
+        self.url = url; self.title = title; self.isPrivate = isPrivate
+    }
 }
 
 /// The lightweight input the sessionizer consumes (built from `ActivitySample` rows).

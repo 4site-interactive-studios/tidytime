@@ -1874,3 +1874,52 @@ stop rounding. The dropped time is reported in `Summary` rather than discarded s
 
 Rung 2 had the same saturation shape (`min(0.8, 0.45 + 0.12 × score)` pins at 0.8 from score 3);
 widened to `min(0.80, 0.40 + 0.10 × score)` so a single shared token reads like the weak guess it is.
+
+### G2 had no callers, and the exposure it was written for had already shipped elsewhere
+
+The sensitivity gate was specified to run before rungs 3–4 and note generation — cloud sends, which
+are Phase 6 and dark. Having nothing to guard *there* is correct, and I nearly filed the whole
+finding as a false positive on that basis.
+
+What that reading missed: the exposure had already shipped by another route. Every window title was
+copied verbatim into `suggestions.note` and `proposed_task_title` — the two fields whose entire
+purpose is to be pasted into Productive. "Re: Jane's performance review — Gmail" reaching a shared
+company system is a worse outcome than the cloud send the gate exists to prevent, and a
+`proposed_task_title` becomes a permanent task somebody else can read.
+
+Gated, and **dropped rather than redacted**: "Re: [REDACTED] — Gmail" still says a review happened,
+with whom, and when. The default `SensitivityGate(terms: [])` keeps the floor list, so a call site
+that forgets the argument is still gated — an empty default is how G2 came to have no callers in the
+first place.
+
+### There was no way to say "don't record this"
+
+No exclusion mechanism existed at all. Everything the Accessibility API and the browser adapter
+could see was written: a private-browsing window, a bank tab, a password manager. The only remedy on
+offer was the global kill switch, which is an off button rather than a control. Retention deletes
+old rows and does not help with a row that should never have existed; the sensitivity gate filters
+what leaves and does not help either, because the raw title is still on disk and still in the recap.
+
+`CaptureExclusions` runs at the capture boundary, before the insert:
+
+1. **Private browsing is never recorded**, with no configuration and no opt-in. Opening an incognito
+   window is an unambiguous statement about being observed. The Chrome adapter now reads
+   `mode of front window`; anything it does not recognise is treated as normal, because guessing
+   "private" on an unknown value would silently stop recording everything.
+2. **Excluded hosts**, matched on registrable suffix so `chase.com` covers `secure.chase.com` — the
+   form the user is actually looking at. Not `contains`, which would also exclude
+   `notchase.completely.example`; a rule that over-excludes looks like a broken capture.
+3. **Excluded apps** by bundle id.
+
+Two details that are easy to get wrong. The tab is dropped **before** its URL and title are copied
+onto the context — recording the row and filtering later would already have put the thing on disk.
+And dropping clears `currentSampleId`, or the excluded page's text would be filed under the last
+sample that *was* recorded, which is worse than recording it honestly.
+
+A denylist fails open, which this codebase avoids on principle. It is right here anyway: the
+alternative is an allowlist of everything the user works on, which nobody completes, and an
+incomplete allowlist silently stops the product working. The accepted failure is "the user must name
+what to exclude"; the avoided one is "the user must name everything, forever, or get nothing."
+
+Both lists are shown in Settings under "Never captured". A privacy control the user cannot see does
+not exist.
