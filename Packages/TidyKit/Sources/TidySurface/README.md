@@ -28,8 +28,8 @@ Builds as a **shell in Phase 0**, fleshed out across **Phases 5–6**.
 | Type / file | Purpose |
 |---|---|
 | `MenuBarPopover` | `MenuBarExtra` content; status + local-only budget / capture-health badges. |
-| `NudgePresenter` | Rate-limited, meeting-aware nudges; learns from dismissals (`nudges`). |
-| `AwayPrompt` | Attributes an `away_gaps` row (break / call / other). |
+| `NudgePresenter` | **Phase 6, not wired.** Written and unit-tested; no production call site, and `NudgeEngine` (TidyAI) that would drive it has none either. `nudges` stays empty. |
+| `AwayPrompt` | **Not wired.** `PowerObserver` (`TidyCapture/LiveCapture.swift`) is never started, so no `away_gaps` row is ever created and the prompt has nothing to ask about. |
 | `RecapWindow` | Timeline + suggestion card stack; accept / edit / reassign / toss / log. |
 | `Dashboard` | Weekly metrics from `daily_rollups`; AI-overhead panel. No targets. |
 | `SettingsView` | Gate lists, budgets, retention window, day / zone. |

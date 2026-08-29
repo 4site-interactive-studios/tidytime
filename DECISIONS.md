@@ -1923,3 +1923,25 @@ what to exclude"; the avoided one is "the user must name everything, forever, or
 
 Both lists are shown in Settings under "Never captured". A privacy control the user cannot see does
 not exist.
+
+### Docs that described the design as though it were the build
+
+`surface-layer.md` stated as a hard module rule: "`TidySurface` links neither `TidyIngest` nor
+`TidyAI`. It cannot reach Productive, Fathom, Google, Slack, Fireworks, or Anthropic."
+`Package.swift:45` lists both. It has been false since `AppEnvironment` moved into that target,
+because the environment owns the 300s pipeline and the pipeline ingests.
+
+The rule that still holds is narrower and is the one that mattered: views and view models never
+reach the network. Worth recording what quietly changed with it — the module boundary used to
+enforce G1 *by construction*, and now it does not. That enforcement moved to
+`GuardrailEnforcementTests`, which greps the whole tree instead of trusting a link-time edge. A
+boundary that is documented but not compiled is a comment.
+
+Three subsystems were also written up as though they ship: away/idle attribution
+(`PowerObserver` is never started, so `away_gaps` is 0 rows and `AwayPrompt` never appears), nudges
+(`NudgeEngine`/`NudgePresenter` have no callers), and the answer half of the learning loop. All are
+now marked, in the doc, with what is missing and what the user sees instead.
+
+This is the same defect class as the orphaned jobs, one layer up: a document that describes intent
+in the present tense is indistinguishable from one describing behaviour, and the reader has no way
+to tell which they are holding. The QC pass that found the above made exactly that mistake first.

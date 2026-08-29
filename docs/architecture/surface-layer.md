@@ -20,9 +20,32 @@ have already produced and records the user's decisions — it does **no** networ
 owns the `MenuBarExtra` scene and wires view models to it. The layer is bound by hard rules
 from [module-map.md](module-map.md):
 
-- **No network.** `TidySurface` links neither `TidyIngest` nor `TidyAI`. It cannot reach
-  Productive, Fathom, Google, Slack, Fireworks, or Anthropic. Sync and classification happen
-  elsewhere, on their own schedules; the surface only reads their results.
+- **No network *from the views*.** This rule used to read "`TidySurface` links neither `TidyIngest`
+  nor `TidyAI`, so it cannot reach Productive, Fathom, Google, Slack, Fireworks, or Anthropic."
+  That has been false since `AppEnvironment` moved into this target: `Package.swift` lists both
+  dependencies, because the environment owns the 300s pipeline and the pipeline ingests.
+
+  The rule that still holds — and the one that mattered — is that **views and view models never
+  reach the network.** They read `TidyStore` through injected read models. Everything that talks to
+  a provider lives in `AppEnvironment`'s pipeline, on its own schedule.
+
+  Note what changed with it: the module boundary used to *enforce* G1 by construction, and now it
+  does not. That enforcement moved to `GuardrailEnforcementTests`, which greps the whole tree rather
+  than trusting a link-time edge. A boundary that is documented but not compiled is a comment.
+> **Shipping status (alpha, 2026-08-28).** This document describes the layer as designed. Three of
+> its subsystems are written, unit-tested, and **have no production call site**, so the tables they
+> read stay empty and the UI that renders them stays blank:
+>
+> | Subsystem | What is missing | Visible effect |
+> |---|---|---|
+> | Away / idle attribution | `PowerObserver` is never started (`TidyCapture/LiveCapture.swift`) | `away_gaps` is 0 rows; `AwayPrompt` never appears; the context-switch metric loses its idle-clipping input |
+> | Nudges | `NudgeEngine` and `NudgePresenter` have no callers | `nudges` is 0 rows; no nudge is ever delivered |
+> | The answer half of the learning loop | `AwayResolving` / `NudgeOutcomeRecording` have no reachable UI | those write paths never run |
+>
+> The recap, suggestions, decisions and the ask-once questions **are** wired as described. Reading
+> this file as a description of what runs today, rather than of what it specifies, is the mistake
+> it is easiest to make here — the QC pass that found the above made exactly that mistake first.
+
 - **No direct provider calls.** "Open task in Productive" opens a `deep_link` URL in the
   browser via `NSWorkspace.open(_:)` — that is the OS opening a URL, not the app calling an
   API. **v1 never writes to Productive (guardrail [G1](../guardrails.md#g1--v1-never-writes-to-productive));**
