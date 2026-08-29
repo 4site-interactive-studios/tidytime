@@ -23,7 +23,9 @@ in a few minutes instead of an end-of-week archaeology session.
 > persisting, capture banking real sessions, credentials in the Keychain, and live Slack/Fathom
 > syncs exercised (whose first-run failures were found and fixed exactly this way). Still awaiting
 > first live use: the Google sign-in click and the cloud AI rungs.
-> Start at **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
+> New here, or scoping the MVP? **[docs/MVP-HANDOFF.md](docs/MVP-HANDOFF.md)** — what the alpha
+> measurably does today, what is written but dark, and what the MVP still needs.
+> Running it: **[docs/RUNNING.md](docs/RUNNING.md)** · review history in
 > [docs/PROJECT-REVIEW.md](docs/PROJECT-REVIEW.md).
 
 ## Why it exists

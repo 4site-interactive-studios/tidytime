@@ -1945,3 +1945,23 @@ now marked, in the doc, with what is missing and what the user sees instead.
 This is the same defect class as the orphaned jobs, one layer up: a document that describes intent
 in the present tense is indistinguishable from one describing behaviour, and the reader has no way
 to tell which they are holding. The QC pass that found the above made exactly that mistake first.
+
+### The alpha handoff document
+
+`docs/MVP-HANDOFF.md`, written after the QC pass rather than before it, so every number in it is
+measured on the live install rather than carried forward from a plan.
+
+The organising choice: it says what the build **does**, and marks separately what the build
+**specifies**. That distinction is the one this repo keeps losing — the architecture docs were
+written in the present tense about intent, and a reader had no way to tell which kind of sentence
+they were holding. Three subsystems were described as shipping while their tables sat at zero rows.
+
+The headline it leads with is `decisions = 0`: nobody has ever accepted a suggestion. That is a bug
+report rather than a usage statistic — "Log it ✓" silently failed on any card older than five
+minutes until this afternoon — but it is the honest state of the product and burying it under
+70.4% attribution and 48,358 samples would have made the document useless for its actual purpose,
+which is deciding what the MVP is.
+
+Verified after the day's work, on live data: pools 10 → 6, pool inflation 1.85× → 1.45×, whole-day
+suggested-vs-observed 1.17× → **1.06×**, confidence spread 3 values (9 of 14 identical) → 5 values
+across 10 cards.

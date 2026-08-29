@@ -5,6 +5,9 @@ lives under `docs/`, grounded in the canonical [PLAN.md](../PLAN.md) at the repo
 
 ## How to read this (suggested order)
 
+0. **[MVP-HANDOFF.md](MVP-HANDOFF.md)** — start here if you are new, or if you are scoping the MVP.
+   What the alpha *measurably does today* (as opposed to what the rest of these docs specify), what
+   is written but dark, and what has to be true before more people install it.
 1. **[../PLAN.md](../PLAN.md)** — the vision and scope. Read once, fully.
 2. **[../CLAUDE.md](../CLAUDE.md)** — the prime directives and repo map. Always loaded.
 3. **[guardrails.md](guardrails.md)** — the invariants you may never break, and how each is
