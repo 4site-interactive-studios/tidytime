@@ -1,6 +1,19 @@
-# The repo had no CI for its first 73 commits. Everything below was verified green locally before
-# this file was committed — and note that an earlier claim that CI existed was wrong: the file was
-# described in a commit message but never written. Hence the "prove it ran" bias here.
+# CI for TidyTime.
+#
+# Why this exists: until now there was none. With one person committing that was survivable; with a
+# team it means nothing enforces the suite — and this repo's two worst production bugs were both
+# fixture-versus-reality mismatches that a green suite reported as fine. The guardrail job matters
+# most: a QC pass showed that a POST-to-Productive writer and a ScreenCaptureKit screen reader both
+# passed the full suite before GuardrailEnforcementTests existed.
+#
+# macOS runner because this is a macOS app with a SwiftPM package. The package tests need no signing
+# and no Xcode project, which is why `make test` is the fast gate; the app target needs a
+# DEVELOPMENT_TEAM we cannot put in CI, so it is type-checked rather than built.
+#
+# This file was written once before and lost: it landed in the main checkout instead of the worktree
+# the commit was made from, so `git add -A` never saw it and a commit message claimed CI that did not
+# exist. Nothing catches that — a commit message is not executable — which is the same class of
+# defect as this repo's orphaned jobs, one level up.
 name: CI
 
 on:
@@ -17,6 +30,9 @@ jobs:
   test:
     name: Tests + doc links
     runs-on: macos-15
+    # A hang has to fail rather than burn the 6-hour default. A cold build of this package plus its
+    # test bundle runs well under this; anything approaching it is a hang, not slowness.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +68,7 @@ jobs:
   typecheck-app:
     name: App target type-check
     runs-on: macos-15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

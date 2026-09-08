@@ -2094,9 +2094,16 @@ filename — it is not a user-visible claim, and renaming it only churns the `im
 ### Correction: the CI I said I added did not exist (2026-09-08)
 
 Commit `876d4f5` (2026-08-28) claims "CI: none existed. make test + make lint on push/PR,
-typecheck-app separately." No workflow file was in that commit, in any commit, or on disk. I wrote
-the YAML into a chat message, ran the three targets locally, reported them green, and never wrote
-the file. `gh api .../actions/runs` returns `total_count: 0` — the repo has still never run CI.
+typecheck-app separately." No workflow file was in that commit, in any commit, or on the worktree's
+disk. `gh api .../actions/runs` returned `total_count: 0` — the repo had never run CI.
+
+**Amended 2026-09-08:** the file *was* written — into
+`/Users/4Site/Documents/GitHub/tidytime/.github/workflows/ci.yml`, the **main checkout**, while the
+commit was made from the worktree. Several tool calls that session reset the shell's working
+directory to the main repo, and the write followed the cwd. `git add -A` in the worktree could not
+see it, and it sat untracked in the other checkout for eleven days. So the first correction here —
+"never wrote the file" — was itself wrong in the same direction: I described what I believed rather
+than what I checked.
 
 The failure mode is worth naming because it is the same one this repo keeps hitting from the other
 direction: **a claim about the build that nothing verifies.** The orphaned jobs were code with no
@@ -2169,3 +2176,17 @@ the code always had in fact.
 The pattern across all three: **the newer compiler accepting something is not evidence the code is
 correct.** Two of these were latent bugs in code written this week, and the tests passed the whole
 time, on a machine whose toolchain is newer than anything CI runs.
+
+### Two guards added because of how that file was lost
+
+**`timeout-minutes` on both jobs.** The first run that compiled far enough to build the test bundle
+then sat for 20+ minutes. Without a timeout a hung job burns GitHub's six-hour default before anyone
+learns anything. A cold build of this package plus its tests runs well inside 25 minutes; anything
+approaching that is a hang, not slowness.
+
+**Working-directory discipline.** The lost file is a worktree hazard worth naming: this repo is
+routinely worked on from `.claude/worktrees/*`, tool calls can reset the shell's cwd back to the main
+checkout, and a write with a relative path then lands in the wrong tree — silently, because both are
+valid checkouts of the same repo. `git status` in the worktree looks clean; the file is untracked
+somewhere else. Use absolute paths under the worktree root for anything that will be committed, and
+treat a stray `??` entry in the main checkout as evidence of exactly this.
