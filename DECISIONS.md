@@ -2148,3 +2148,24 @@ feature without undo is not the same feature shipped early, it is a different an
 G1 is finally relaxed, `GuardrailEnforcementTests` should be *rewritten* rather than deleted — that
 test is what stands between a bug and a corrupted timesheet in a system the whole team reads, and it
 should be replaced by a narrower guard, never by nothing.
+
+### What the first green CI run cost: three actor-isolation defects
+
+All three compiled clean on Xcode 26.6 and were rejected by the runner's Xcode 16.4. None was a
+false positive; in each case the older compiler was right and the annotation now states isolation
+the code always had in fact.
+
+1. `AppLifecycle.quit()` — declared `nonisolated`, calls `NSApplication.shared.terminate`. Now
+   `@MainActor`.
+2. `RecapWindow.signalToConfirm` / `isToolHost` / `toolHosts` — pure functions over a database and a
+   value, main-actor isolated only because they live inside a SwiftUI View. That is an accident of
+   *where they were written*, not a property of what they do. Marked `nonisolated`, which is both
+   the fix and the more honest declaration. The alternative — annotating four test methods
+   `@MainActor` — would have spread a false constraint outward from its source.
+3. `DailyRollupWiringTests` — the class is `@MainActor`, but XCTest's throwing `setUpWithError` /
+   `tearDown` overrides are nonisolated regardless, so they could not touch the class's own `dir`.
+   The `async` forms inherit the class's isolation; switched to those.
+
+The pattern across all three: **the newer compiler accepting something is not evidence the code is
+correct.** Two of these were latent bugs in code written this week, and the tests passed the whole
+time, on a machine whose toolchain is newer than anything CI runs.

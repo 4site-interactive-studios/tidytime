@@ -16,8 +16,10 @@ import TidySurface
 final class DailyRollupWiringTests: XCTestCase {
     private var dir: URL!
 
-    override func setUpWithError() throws { dir = try TestSupport.makeTempDir() }
-    override func tearDown() { TestSupport.cleanup(dir) }
+    // The async forms, not setUpWithError/tearDown: the throwing overrides are nonisolated even on
+    // a @MainActor class, so they cannot touch `dir`. Xcode 16.4 enforces this; Xcode 26 does not.
+    override func setUp() async throws { dir = try TestSupport.makeTempDir() }
+    override func tearDown() async throws { TestSupport.cleanup(dir) }
 
     private func makeEnv() throws -> (AppDatabase, AppEnvironment) {
         let db = try AppDatabase.inMemory()

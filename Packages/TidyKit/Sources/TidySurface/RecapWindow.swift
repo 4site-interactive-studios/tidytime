@@ -144,7 +144,12 @@ public struct RecapWindow: View {
     ///
     /// Matched on the registrable suffix so `mail.google.com` and `docs.google.com` are covered
     /// without enumerating subdomains.
-    static let toolHosts: Set<String> = [
+    // `nonisolated` on the three below: they are pure functions over a database and a value, and
+    // were main-actor isolated only because they live inside a SwiftUI View — an accident of where
+    // they were written, not a property of what they do. Xcode 16.4 rejects calling them from a
+    // nonisolated test; Xcode 26 does not. Stating the real isolation is the fix, not annotating
+    // every caller.
+    nonisolated static let toolHosts: Set<String> = [
         "google.com", "gmail.com", "youtube.com", "slack.com", "productive.io", "github.com",
         "anthropic.com", "claude.ai", "openai.com", "chatgpt.com", "notion.so", "figma.com",
         "zoom.us", "atlassian.net", "linear.app", "bugherd.com", "dropbox.com", "box.com",
@@ -153,7 +158,7 @@ public struct RecapWindow: View {
     ]
 
     /// Is this host a tool rather than a client's own domain?
-    static func isToolHost(_ host: String) -> Bool {
+    nonisolated static func isToolHost(_ host: String) -> Bool {
         let h = host.lowercased()
         if toolHosts.contains(h) { return true }
         return toolHosts.contains { h.hasSuffix("." + $0) }
@@ -165,7 +170,7 @@ public struct RecapWindow: View {
     /// tool HOST is the same problem one layer down. A `user_confirmed` rule is permanent and
     /// outranks everything, so the bar for writing one is "this host identifies a client", not
     /// "the user accepted a card that happened to involve this host".
-    public static func signalToConfirm(db: AppDatabase, suggestion: Suggestion) -> DecisionRecorder.SignalRef? {
+    public nonisolated static func signalToConfirm(db: AppDatabase, suggestion: Suggestion) -> DecisionRecorder.SignalRef? {
         struct Refs: Decodable { let sessions: [Int64]? }
         guard let data = suggestion.sourceRefsJson.data(using: .utf8),
               let ids = (try? JSONDecoder().decode(Refs.self, from: data))?.sessions, !ids.isEmpty,
