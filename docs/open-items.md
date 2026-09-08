@@ -273,3 +273,43 @@ the same change ([CLAUDE.md](../CLAUDE.md) "When docs and reality disagree").
   `com.4site.TidyTime`, and reconcile the table in
   [permissions-setup.md](permissions-setup.md) §0 to match. This is a doc/impl consistency task, not
   a vendor unknown.
+
+---
+
+## C. Tabled by decision
+
+Not unknowns. Questions that were raised, considered, and **deliberately deferred** — recorded here
+so a later session finds the decision instead of relitigating it or, worse, quietly implementing
+against it.
+
+### C1 — Should "Mark entered ✓" write the time entry to Productive?
+
+- [ ] **Tabled** (decided 2026-09-08, by the project owner) — **No, not yet.** Explore in a future
+  round; do not implement against this in the meantime.
+- **Question:** The recap's primary action records a local decision and teaches the classifier. It
+  does not create the time entry — the user still enters it in Productive by hand. Should it write?
+- **Status:** Deliberately deferred. [G1](guardrails.md#g1--v1-never-writes-to-productive) stands,
+  and the guardrail tests that enforce it stay green. This entry exists because the question was
+  asked directly and answered "not yet", which is different from nobody having thought about it.
+- **Why it matters:** It is the difference between a tool that suggests and a tool that acts. Today
+  the product's promise stops one step short of the thing it promises, and that gap is real — but
+  crossing it trades away the property that makes the alpha safe to run unattended: a wrong
+  suggestion costs a click, not a wrong timesheet in a system the whole team reads.
+- **What was done instead (2026-08-28):** The friction was removed rather than the guardrail. The
+  action is named "Mark entered ✓" instead of "Log it ✓" so it stops claiming the one thing it does
+  not do; `Copy` yields `Client › Project › Task · 45m · note` rather than `45m — note`; cards carry
+  an "Open in Productive" deep link when a task exists; and the header shows *two* numbers — what is
+  in Productive versus what has been marked entered here — because the single "already logged"
+  figure came from the read-only mirror and therefore could never move when the button was pressed.
+- **Resolve by:** v2. Not a phase-6 item; it is a scope change, not an intelligence feature.
+- **How to resolve, when it is picked up:**
+  1. Design **audit and undo first**, before any write path exists. Every write needs a local record
+     of what was sent, when, and from which suggestion, plus a one-click reversal. A write feature
+     without undo is not the same feature shipped early — it is a different, worse one.
+  2. Decide what happens on a *wrong* write, since that is the whole risk: who notices, how fast,
+     and what it costs to correct in a shared system.
+  3. Only then relax G1 — deliberately, in its own commit, with
+     `GuardrailEnforcementTests` rewritten rather than deleted, so the new boundary is as enforced
+     as the old one. G1 currently fails the build on any `POST`/`PUT`/`PATCH`/`DELETE` in a file
+     that touches Productive; that test is the thing standing between a bug and a corrupted
+     timesheet, and it should be replaced by a narrower guard, never by nothing.

@@ -109,10 +109,16 @@ timesheet has a "that was 45 minutes, not 60" moment, and today the only options
 number or throw the card away — which also throws away the correction the system would have learned
 from.
 
-**3. Actually logging to Productive.**
-G1 makes v1 read-only deliberately, and that was right for an alpha. But the product's promise ends
-one step short of the thing it promises: the user still retypes everything. This is the v2 line, and
-it needs audit + undo designed properly before it is crossed — not bolted on.
+**3. Actually logging to Productive — asked and deliberately tabled (2026-09-08).**
+G1 makes v1 read-only, and that was right for an alpha. The product's promise does end one step
+short of the thing it promises: the user still enters the time by hand. The question was put to the
+project owner directly and the answer was **not yet** — explore it in a future round.
+
+So this is not an oversight and not a gap waiting to be filled by whoever gets here next: **do not
+implement a write path against this decision.** The friction was removed instead — an honest button
+name, a paste-ready copy payload, deep links, and a "marked entered here" counter that actually
+moves. See [open-items.md §C1](open-items.md#c1--should-mark-entered--write-the-time-entry-to-productive)
+for the reasoning and for what has to be designed *first* (audit and undo) whenever it is picked up.
 
 **4. A second person's data.**
 Every measurement in §2 comes from one workspace: 687 companies, 965 projects, 11,631 tasks, and a

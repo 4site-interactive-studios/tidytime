@@ -2126,3 +2126,25 @@ and that asymmetry is doing the work. A newer compiler accepting something is no
 is correct. The instinct on seeing this failure is to pin CI forward to match local — which would
 have hidden a real isolation bug rather than fixing one. The workflow now says so at the step that
 prints the toolchain.
+
+## Tabled: writing time entries to Productive (2026-09-08)
+
+Asked directly, answered directly: **not yet.** Explore in a future round. G1 stands, the guardrail
+tests that enforce it stay green, and no write path is to be built against this decision in the
+meantime.
+
+Recorded in [docs/open-items.md](docs/open-items.md) §C1 — a new section for questions that were
+raised, considered and deliberately deferred, as distinct from the unknowns in §A and §B. That
+distinction is the reason for the entry. A gap with no explanation reads to the next session as an
+oversight, and the natural instinct on finding "the button doesn't do the thing it's for" is to go
+and make it do the thing. §C1 exists so that instinct meets a decision instead of a vacuum.
+
+`MVP-HANDOFF.md` §5.3 previously described this as work the MVP has to add. It now says it was asked
+and tabled, and points at §C1 — because a handoff document listing it as a to-do would have produced
+exactly the outcome the decision was meant to prevent.
+
+Noted in §C1 for whoever picks it up: **design audit and undo before any write path exists.** A write
+feature without undo is not the same feature shipped early, it is a different and worse one. And when
+G1 is finally relaxed, `GuardrailEnforcementTests` should be *rewritten* rather than deleted — that
+test is what stands between a bug and a corrupted timesheet in a system the whole team reads, and it
+should be replaced by a narrower guard, never by nothing.
