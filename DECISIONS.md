@@ -2190,3 +2190,33 @@ checkout, and a write with a relative path then lands in the wrong tree — sile
 valid checkouts of the same repo. `git status` in the worktree looks clean; the file is untracked
 somewhere else. Use absolute paths under the worktree root for anything that will be committed, and
 treat a stray `??` entry in the main checkout as evidence of exactly this.
+
+### The CI hang: a test was launching Google Chrome
+
+The first job that ever got far enough to *run* the suite on CI sat for 25 minutes and hit the
+timeout. The cause was in the runner's cleanup log, not in any test output:
+
+```
+Terminate orphan process: pid (2253) (Google Chrome)
+Terminate orphan process: pid (2244) (xctest)
+```
+
+The chain: `runPipelineOnce()` → `writeDiagnosticsSnapshot()` → `PermissionInspector` →
+`chromeJavaScriptStatus()` → `NSAppleScript("tell application \"Google Chrome\" …")`. Sending that
+Apple Event **launches Chrome** when it is not running. Four tests call `runPipelineOnce()`, and the
+log stops right after `ConfigSeedTests` — `DailyRollupWiringTests` is next alphabetically.
+
+Mine, and introduced this session: the diagnostics snapshot was added to the end of
+`runPipelineOnce()` while wiring up the orphaned jobs. On a developer machine Chrome is already
+running and answers in milliseconds, so it was invisible — the suite passed in 3.5 seconds all day.
+
+`PermissionStatusProviding` already existed as a seam, with `StaticPermissionProvider` as
+`DiagnosticsAssembler`'s default; `AppEnvironment` simply hardcoded the live inspector in two places.
+It is now injected, defaulting to the inert provider, and the live `PermissionInspector` is wired in
+exactly one place: `init(paths:)`, the real app's initializer. `GuardrailEnforcementTests` pins that
+count at one, because this failure is silent on every machine a developer would test it on.
+
+Worth noting what CI actually bought here. Three actor-isolation defects, then this — none of which
+any amount of local testing would have surfaced, because the local environment is precisely the one
+where they do not reproduce. The value was not "run the tests again"; it was "run them somewhere
+that is not this machine."

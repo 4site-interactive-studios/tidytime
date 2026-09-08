@@ -96,9 +96,13 @@ public final class AppEnvironment: ObservableObject {
 
     /// Production init. Throws only if the support directory or DB is unusable — the caller shows
     /// the error rather than launching a half-working app.
+    /// The real app's initializer — and the ONLY place the live `PermissionInspector` is wired in.
+    /// Everything else (tests, tooling) gets `StaticPermissionProvider`, because the live inspector
+    /// sends an Apple Event that launches Chrome. See the `permissions` property.
     public init(paths: AppPaths? = nil) throws {
         let resolved = try (paths ?? AppPaths.standard()).ensureDirectories()
         self.paths = resolved
+        self.permissions = PermissionInspector()
         // Give a fresh install the config file that Doctor, Settings, and permissions-setup.md all
         // tell the user to open. Kept out of `ensureDirectories()`, whose contract is filesystem
         // layout, not content — the doctor CLI resolves the same paths and must never mutate the
@@ -132,10 +136,25 @@ public final class AppEnvironment: ObservableObject {
     }
 
     /// Test/preview init from an already-open database.
+    /// How permission status is read for the diagnostics snapshot.
+    ///
+    /// Injectable because the live `PermissionInspector` probes Chrome's "Allow JavaScript from
+    /// Apple Events" toggle by sending an Apple Event — which **launches Chrome** if it is not
+    /// running. That is correct in the app and catastrophic anywhere else: `runPipelineOnce()`
+    /// writes a diagnostics snapshot, four tests call it, and on a headless CI runner the launched
+    /// Chrome never answered. The suite hung for 25 minutes and the runner reported
+    /// `Terminate orphan process: (Google Chrome)` on cleanup.
+    ///
+    /// `StaticPermissionProvider` is the default everywhere except the real app, which passes the
+    /// inspector explicitly.
+    private let permissions: PermissionStatusProviding
+
     public init(db: AppDatabase, config: Config = Config(), paths: AppPaths,
-                secrets: SecretStore = InMemorySecretStore(), logger: TidyLogger? = nil) {
+                secrets: SecretStore = InMemorySecretStore(), logger: TidyLogger? = nil,
+                permissions: PermissionStatusProviding = StaticPermissionProvider()) {
         self.paths = paths; self.config = config; self.db = db; self.secrets = secrets
         self.logger = logger ?? TidyLogger(category: "app", sink: InMemoryLogSink())
+        self.permissions = permissions
     }
 
     // MARK: Capture lifecycle
@@ -372,7 +391,7 @@ public final class AppEnvironment: ObservableObject {
     public func writeDiagnosticsSnapshot() -> URL? {
         let assembler = DiagnosticsAssembler(
             db: db, config: config, secrets: secrets, logURL: paths.currentLogURL,
-            permissions: PermissionInspector())
+            permissions: permissions)
         var input = assembler.assemble()
         input.extras["snapshot_written_at"] = ISO8601DateFormatter().string(from: Date())
         input.extras["capturing"] = String(isCapturing)
@@ -394,7 +413,7 @@ public final class AppEnvironment: ObservableObject {
     public func copyDiagnostics(using clipboard: ClipboardWriter = SystemClipboard()) {
         let assembler = DiagnosticsAssembler(
             db: db, config: config, secrets: secrets, logURL: paths.currentLogURL,
-            permissions: PermissionInspector())
+            permissions: permissions)
         let known = SecretKey.all.compactMap { try? secrets.get($0) }.compactMap { $0 }
         assembler.copyDiagnostics(using: clipboard, knownSecretValues: known)
         logger.info("diagnostics copied to clipboard")

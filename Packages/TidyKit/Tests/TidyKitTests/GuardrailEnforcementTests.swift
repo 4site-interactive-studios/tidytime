@@ -155,6 +155,29 @@ final class GuardrailEnforcementTests: XCTestCase {
     /// Every job below was written, tested, and never called in production; six were discovered that
     /// way and wired. Nothing in the suite noticed, because a job that is never invoked cannot fail.
     /// This pins the call sites so deleting one is a test failure rather than a silent regression.
+    /// No test may reach an API that launches or drives another application.
+    ///
+    /// `runPipelineOnce()` writes a diagnostics snapshot, which read permission status, which probed
+    /// Chrome's Apple-Events toggle by *sending an Apple Event* — launching Chrome. Four tests call
+    /// that pipeline. Locally Chrome is already running and answers instantly, so it was invisible;
+    /// on a headless CI runner the launched Chrome never replied and the suite hung until the
+    /// 25-minute timeout, with `Terminate orphan process: (Google Chrome)` in the cleanup log.
+    ///
+    /// The live inspector is now wired ONLY in `AppEnvironment.init(paths:)`, the real app's
+    /// initializer. This pins that, because the failure is silent on every developer machine.
+    func testOnlyTheAppWiresTheLivePermissionInspector() throws {
+        let src = try String(
+            contentsOf: TestSupport.repoRoot()
+                .appendingPathComponent("Packages/TidyKit/Sources/TidySurface/AppEnvironment.swift"),
+            encoding: .utf8)
+        let hits = code(src).components(separatedBy: "PermissionInspector()").count - 1
+        XCTAssertEqual(hits, 1,
+                       "PermissionInspector sends an Apple Event that LAUNCHES Chrome. It belongs "
+                     + "in init(paths:) only; every other path takes the injected provider.")
+        XCTAssertTrue(code(src).contains("permissions: PermissionStatusProviding = StaticPermissionProvider()"),
+                      "the default must be the inert provider, so a caller that forgets is safe")
+    }
+
     func testPipelineJobsHaveProductionCallSites() throws {
         let env = try String(
             contentsOf: TestSupport.repoRoot()
