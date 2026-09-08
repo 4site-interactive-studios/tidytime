@@ -2106,3 +2106,23 @@ because of the first version; nothing catches the second, because a commit messa
 
 Now actually committed, with the three steps verified green immediately before writing the file:
 452 tests, doc links resolve, app target type-checks.
+
+### The first CI run failed, which is the argument for having it
+
+Both jobs went red on a repo where `make test`, `make lint` and `make typecheck-app` were all green
+locally minutes earlier. The cause:
+
+```
+MenuBarPopover.swift:112: error: main actor-isolated class property 'shared'
+  can not be referenced from a nonisolated context
+```
+
+`AppLifecycle.quit()` was declared `nonisolated` and calls `NSApplication.shared.terminate` — both
+main-actor isolated. **Swift 6.3 / Xcode 26.6 accepts it; the runner's Xcode 16.4 rejects it, and
+16.4 is right.** The annotation now states the isolation the function always had in fact.
+
+The general point, worth keeping: the runner's toolchain is *older* than any developer machine here,
+and that asymmetry is doing the work. A newer compiler accepting something is not evidence the code
+is correct. The instinct on seeing this failure is to pin CI forward to match local — which would
+have hidden a real isolation bug rather than fixing one. The workflow now says so at the step that
+prints the toolchain.

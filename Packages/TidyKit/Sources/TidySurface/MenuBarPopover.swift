@@ -107,6 +107,11 @@ public enum AppWindow: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum AppLifecycle {
+    /// `@MainActor` because `NSApplication.shared` and `terminate` both are, and this was declared
+    /// nonisolated. Swift 6.3 / Xcode 26 accepts the call anyway; Xcode 16.4 rejects it, and 16.4 is
+    /// right — the annotation states the isolation this function always had in fact. Found by the
+    /// repo's first-ever CI run, on a toolchain older than any developer machine here.
+    @MainActor
     public static func quit() {
         #if canImport(AppKit)
         NSApplication.shared.terminate(nil)

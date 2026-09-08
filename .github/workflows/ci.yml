@@ -31,8 +31,12 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('Packages/TidyKit/Package.resolved') }}
           restore-keys: ${{ runner.os }}-spm-
 
+      # Print it, because this is the whole reason CI earns its keep here: the runner's Xcode is
+      # OLDER than any developer machine on this project (16.4 vs 26.x), and the first run caught a
+      # main-actor isolation error that the newer compiler waves through. Do not "fix" a failure by
+      # pinning this forward without reading it first — the older toolchain is usually correct.
       - name: Show toolchain
-        run: swift --version
+        run: swift --version && xcodebuild -version
 
       # Runs the whole suite including GuardrailEnforcementTests, which is the point: G1 (never
       # write to Productive), G3 (never touch a screen-capture API), G6 (no secrets in sources),
