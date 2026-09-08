@@ -1,0 +1,68 @@
+# The repo had no CI for its first 73 commits. Everything below was verified green locally before
+# this file was committed — and note that an earlier claim that CI existed was wrong: the file was
+# described in a commit message but never written. Hence the "prove it ran" bias here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests + doc links
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # SwiftPM's checkouts and build products are the slow part; key on the resolved file so a
+      # dependency bump busts the cache rather than silently reusing a stale GRDB.
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            Packages/TidyKit/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('Packages/TidyKit/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      - name: Show toolchain
+        run: swift --version
+
+      # Runs the whole suite including GuardrailEnforcementTests, which is the point: G1 (never
+      # write to Productive), G3 (never touch a screen-capture API), G6 (no secrets in sources),
+      # and the check that every pipeline job still has a production call site.
+      - name: make test
+        run: make test
+
+      # Doc links were broken on a fresh clone for the repo's entire history — four setup guides
+      # were gitignored by an unanchored `build/`. This is the guard against that recurring.
+      - name: make lint
+        run: make lint
+
+  typecheck-app:
+    name: App target type-check
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            Packages/TidyKit/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('Packages/TidyKit/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      # The app target cannot be BUILT here: signing needs a DEVELOPMENT_TEAM from the gitignored
+      # Local.xcconfig, and an ad-hoc signature would defeat G7 (a changing signature makes macOS
+      # silently revoke the TCC grants the app depends on). Type-checking still catches the
+      # SwiftUI/availability breakage that package tests never see — App/ is not in the package.
+      - name: make typecheck-app
+        run: make typecheck-app

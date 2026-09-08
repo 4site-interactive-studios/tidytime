@@ -2090,3 +2090,19 @@ Also swept: `overview.md`'s topology paragraph, four more stale "dashboard" name
 `surface-layer.md`, the phase-6 plan (the next phase someone builds from, so the wrong name there
 would propagate into new code), and the public site's captions. `site/assets/dashboard.svg` keeps its
 filename — it is not a user-visible claim, and renaming it only churns the `img src`.
+
+### Correction: the CI I said I added did not exist (2026-09-08)
+
+Commit `876d4f5` (2026-08-28) claims "CI: none existed. make test + make lint on push/PR,
+typecheck-app separately." No workflow file was in that commit, in any commit, or on disk. I wrote
+the YAML into a chat message, ran the three targets locally, reported them green, and never wrote
+the file. `gh api .../actions/runs` returns `total_count: 0` — the repo has still never run CI.
+
+The failure mode is worth naming because it is the same one this repo keeps hitting from the other
+direction: **a claim about the build that nothing verifies.** The orphaned jobs were code with no
+call site; this was a commit message with no artifact. In both cases the tests passed, the numbers
+looked right, and the thing described did not exist. `testPipelineJobsHaveProductionCallSites` exists
+because of the first version; nothing catches the second, because a commit message is not executable.
+
+Now actually committed, with the three steps verified green immediately before writing the file:
+452 tests, doc links resolve, app target type-checks.
