@@ -35,6 +35,18 @@ capture → sessionize → classify → suggest → recap → decide → learn
 
 Measured on the author's live install, 2026-08-28, after ~5 weeks of continuous capture.
 
+> **Correction (2026-09-08, from the phase audit).** The observed/attributed figures below are
+> computed against a denominator that is **more than half macOS lock screen** — 400 of 740 recorded
+> screen-session hours carry `app:com.apple.loginwindow`, because the idle/away/power subsystem is
+> orphaned and `away_gaps` has 0 rows. Treat every rate in this table as provisional until
+> [open-items.md §D2](open-items.md#d2--54-of-all-recorded-screen-time-is-the-macos-lock-screen) is
+> fixed and the rollups are recomputed. The absolute counts (samples, signals, suggestions) are
+> unaffected; the *percentages* are not.
+>
+> Also from that audit, and more urgent than anything in §5: the database is storing third-party
+> credentials captured from URLs and mirrored task descriptions —
+> [§D1](open-items.md#d1--the-database-stores-third-party-credentials-captured-from-urls-and-mirrored-content).
+
 | | Measured |
 |---|---|
 | Activity samples captured | 48,358 |

@@ -313,3 +313,73 @@ against it.
      as the old one. G1 currently fails the build on any `POST`/`PUT`/`PATCH`/`DELETE` in a file
      that touches Productive; that test is the thing standing between a bug and a corrupted
      timesheet, and it should be replaced by a narrower guard, never by nothing.
+
+---
+
+## D. Found by the phase audit (2026-09-08)
+
+A per-phase audit against each phase's own acceptance criteria, checking shipped code and the live
+database rather than doc prose. Two findings are serious; both were verified by hand afterwards.
+
+### D1 — The database stores third-party credentials captured from URLs and mirrored content
+
+- [ ] **Open — highest priority of anything in this file.**
+- **Verified live, counts only (values deliberately not reproduced here):**
+  `activity_samples` holds **35** rows whose `url` contains `code=`, **2** of them Google OAuth
+  authorization codes (`code=4/0A…`), and **1** carrying `access_token=`/`id_token=`.
+  `page_snapshots` holds **4** more. `pd_tasks` holds **1** description containing a real-format
+  Google client secret (`GOCSPX-…`) and **2** more matching `xox…`/`AIzaSy…`/`sk-ant-…`.
+- **Why it happens:** `SampleRecorder` stores `context.url` verbatim including the query string, and
+  `ProductiveSync` mirrors task descriptions verbatim. `Redactor` is applied to logs,
+  `sync_state.last_error` and the diagnostics bundle — **never to ingested or captured rows**.
+  `CaptureExclusions` matches on host only, so it cannot help: the host is `claude.ai` or `miro.com`,
+  which are ordinary work sites.
+- **Why it is worse than it looks:** TidyTime's own Google sign-in redirects to
+  `http://127.0.0.1:<port>/?code=…&state=…` in Chrome. There is no localhost or query-string
+  exclusion, so **running the app's own OAuth flow writes its own authorization code into
+  `activity_samples`.** Completing Phase 3 setup on this machine would do exactly that.
+- **Note on G6:** this is not literally a [G6](guardrails.md#g6) violation — G6 governs *TidyTime's*
+  tokens, and those are correctly Keychain-only. It is the same harm by a different route, and the
+  guardrail as written does not reach it.
+- **How to resolve:**
+  1. Scrub credential-shaped query parameters (`code`, `access_token`, `id_token`, `state`,
+     `client_secret`, `api_key`) at the capture boundary, before the insert — the same place
+     `CaptureExclusions` runs, for the same reason: a row that should never exist must never exist.
+  2. Add `127.0.0.1` / `localhost` loopback-with-query to the never-recorded set.
+  3. Run `Redactor` over ingested text (`pd_tasks.description`, page text) as well as logs.
+  4. Purge what is already stored, and add a guardrail test that greps the live schema's text
+     columns for credential shapes the way `GuardrailEnforcementTests` greps sources.
+
+### D2 — 54% of all recorded "screen" time is the macOS lock screen
+
+- [ ] **Open.** Every observed-time and attribution-rate number in the product is computed against a
+  denominator that is more than half lock screen.
+- **Verified live:** of 740 recorded `kind='screen'` session hours, **400.1 hours (54.1%)** carry
+  `context_key = 'app:com.apple.loginwindow'` — the single largest "activity" in the database, ahead
+  of every real application. `away_gaps` has **0 rows** after 44 days.
+- **Why:** `PowerObserver`, `IdleReader` and `AwayGapDetector` are written, tested, and have **zero
+  production call sites** — the orphan pattern again. With nothing detecting sleep/lock/idle, the
+  sessionizer treats an overnight lock as one long contiguous `screen` session.
+- **Consequence:** "N min observed" and "X% attributed" in the recap, `daily_rollups`, and the Stats
+  tab are all inflated by an unknown amount, and the context-switch metric loses its idle-clipping
+  input. Any judgement about whether attribution is "good enough" is being made against a corrupted
+  denominator — including the judgements in [MVP-HANDOFF.md](MVP-HANDOFF.md) §2.
+- **How to resolve:** wire `PowerObserver` into `LiveCaptureController.start()`/`stop()` with its
+  `onGap` closure calling `SampleRecorder.recordAwayGap`; give `CaptureCoordinator` an `IdleReading`
+  dependency polled on the detection tick; have the sessionizer clip sessions at `away_gaps`
+  boundaries. Then recompute the rollups, and treat every attribution number recorded before that as
+  provisional.
+
+### D3 — Smaller confirmed gaps, by phase
+
+Full detail in the audit; these are the ones with user-visible consequences.
+
+| Phase | Gap |
+|---|---|
+| 0 | Launch-at-login is registered blind — `SMAppService.status` is never read, so a failed registration is silent. `make doctor` prints three `echo` lines, not diagnostics (the real CLI is `make diagnose`). |
+| 1 | No Chrome-adapter tests against recorded AppleScript replies; every capture test injects a fake. |
+| 2 | Four mirrored columns are 100% NULL live: `pd_tasks.status`, `pd_companies.company_type`, `pd_companies.domain`, `pd_time_entries.project_id`. `productive_person_id` is never written back to `config.json`. |
+| 3 | **Google Calendar has never run** — 0 rows, no `sync_state` row, no credentials. The away prompt is orphaned (depends on D2). |
+| 4 | Thread replies are never fetched — there is no `conversations.replies` call, and **677 of 984 stored thread roots have no replies**. Slack *sessions* are not idempotent (deleted and reinserted every pass). |
+| 5 | The ask-once loop is one-way: `answerQuestion` has no caller and no UI, so **13 questions are open and 0 have ever been answered**. Billable inference is unimplemented — `suggestions.billable` is NULL on all 61 rows, and `daily_rollups.billable_minutes` is 0 everywhere. The rounding bias is inverted relative to the documented intent. |
+| 6 | Entirely dark, as designed — but note the anti-orphan guardrail test was scoped to exclude every phase-6 orphan, so it cannot catch them. |

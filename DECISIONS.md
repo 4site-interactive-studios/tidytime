@@ -2220,3 +2220,38 @@ Worth noting what CI actually bought here. Three actor-isolation defects, then t
 any amount of local testing would have surfaced, because the local environment is precisely the one
 where they do not reproduce. The value was not "run the tests again"; it was "run them somewhere
 that is not this machine."
+
+## Phase audit (2026-09-08) — two findings that change the picture
+
+An audit of every build phase against its own acceptance criteria, checking shipped code and the live
+database rather than doc prose, with a verification pass hunting the orphan pattern. Recorded in
+[docs/open-items.md](docs/open-items.md) §D. Two findings matter more than the rest, and I verified
+both by hand before writing them down.
+
+**The database stores third-party credentials.** 35 `activity_samples` rows have `code=` in the URL
+— two of them Google OAuth authorization codes — plus 4 `page_snapshots`, one `pd_tasks` description
+carrying a real-format `GOCSPX-…` client secret, and two more matching other token shapes. Nothing
+scrubs them: `SampleRecorder` stores the URL verbatim with its query string, `ProductiveSync` mirrors
+descriptions verbatim, and `Redactor` runs only on logs, `sync_state.last_error` and the diagnostics
+bundle. `CaptureExclusions` cannot help because it matches on host, and the hosts are ordinary work
+sites.
+
+The sharp edge: TidyTime's own Google sign-in redirects to `http://127.0.0.1:<port>/?code=…` in
+Chrome, and there is no loopback or query-string exclusion — so completing Phase 3 setup on this
+machine writes the app's own authorization code into `activity_samples`. Not literally a G6
+violation, since G6 governs TidyTime's own tokens and those are correctly Keychain-only. The same
+harm by a route the guardrail does not reach, which is the more interesting kind of gap.
+
+**54% of recorded screen time is the lock screen.** 400.1 of 740 `kind='screen'` session hours carry
+`app:com.apple.loginwindow` — the largest single "activity" in the database, ahead of every real
+application. `PowerObserver`, `IdleReader` and `AwayGapDetector` are orphans, so nothing detects
+sleep or lock and the sessionizer treats an overnight lock as one contiguous session.
+
+That corrupts the denominator of every rate the product reports, including the ones in
+`MVP-HANDOFF.md` §2 that I wrote this morning and quoted several times since. Corrected there with a
+note rather than by deleting the numbers: the absolute counts are fine, the percentages are not, and
+saying which is which is more useful than removing the table.
+
+Worth noting how this was missed. Both are invisible from the code alone — the first needs you to
+query the live data for credential shapes, and the second only shows up when you rank sessions by
+duration and notice that the top row is the lock screen. Every prior review read code and tests.
