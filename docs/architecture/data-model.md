@@ -461,11 +461,12 @@ Authoritative list — mirrors
 | 8 | `v2-context-switches` | post-v1 | adds 3 context-switch columns to `daily_rollups` |
 | 9 | `v2-page-snapshot-time-index` | post-v1 | index on `page_snapshots(captured_at)` |
 | 10 | `v3-credential-scrub` | post-v1 | **data only** — strips query/fragment from stored URLs, drops loopback-redirect rows, pattern-redacts free-text columns (G10) |
+| 11 | `v3-loginwindow-away-gaps` | post-v1 | **data only** — lock-screen samples become `away_gaps` rows (`cause='lock'`) and their sessions are deleted; `RollupBackfillJob` re-rolls every day once afterwards |
 
 Migrations 8–9 are **additive and safe on a populated database** (new columns are `NOT NULL` with
-defaults); the upgrade path is covered by `MigrationUpgradePathTests`. Migration 10 changes no
-schema; it rewrites rows through `CredentialScrub`, the same code the live ingest paths use, and is
-covered by `CredentialScrubTests`.
+defaults); the upgrade path is covered by `MigrationUpgradePathTests`. Migrations 10–11 change no
+schema; they rewrite rows through `CredentialScrub` and `AwayGapBackfill`, the same code the live
+paths use, and are covered by `CredentialScrubTests` and `AwayCaptureTests`.
 
 ```swift
 var migrator = DatabaseMigrator()

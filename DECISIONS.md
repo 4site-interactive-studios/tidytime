@@ -2320,3 +2320,71 @@ does not. The test now says why.
 **Rejected:** redacting `sessions.title` and `suggestions.note` in the purge. Both are derived from
 already-scrubbed rows and rebuilt; the schema-wide scan covers them anyway, so if a shape ever
 appears there the test says so rather than the purge silently papering over it.
+
+## D2: the lock screen was 54% of "screen time" — wiring the away subsystem (2026-09-09)
+
+Closes [open-items §D2](docs/open-items.md). `PowerObserver`, `IdleReader` and `AwayGapDetector`
+were the seventh orphan: written, tested, never called. The frontmost reader faithfully reported
+`com.apple.loginwindow` as an application, `SampleRecorder` faithfully stored it, and the
+sessionizer faithfully built a 13.8-hour session out of it. 594 samples, 222 sessions, 409 hours.
+
+**One away state, three signals.** The obvious wiring — `PowerObserver.onGap → recordAwayGap` — would
+have written a second, overlapping gap for every lunch break the idle detector had already noticed.
+So the coordinator owns a single `away` value and everything reports *boundaries* into it: the idle
+reader crossing the threshold (backdated to `now − idle`, because the block ended when input stopped,
+not when we looked), the lock screen or screen saver being frontmost (never a sample, whatever the
+notifications do), and sleep/wake and lock/unlock relayed by `PowerObserver`. Overlaps collapse:
+earliest start wins, a specific cause replaces `idle`, and an end notification closes only a gap of
+its own cause — a wake with the screen still locked is not the user coming back, and `poll` will see
+the lock screen. The lock/unlock notification names are undocumented by Apple; the design does not
+depend on them firing.
+
+**Entering away closes the sample at the boundary.** The old contract closed an open sample only
+when the *next* sample opened, which is what stretched a 9pm sample to 8am. `closeOpenSample` is now
+called at the away boundary, and clamps to the sample's own start so a title change with no input
+cannot leave a sample dangling. Pause and quit call `suspend()` for the same reason, and a 20-second
+`capture_last_alive` heartbeat lets the next launch close a sample a crash left open at the last
+known-alive time rather than at launch.
+
+**Sessions cannot cover away time.** `SessionBuildJob` subtracts `away_gaps` from every slice, and
+`Sessionizer` now treats a hole ≥ the detour tolerance between consecutive slices as a hard
+boundary. It had to: samples are contiguous by construction, so the sessionizer had never seen a
+hole, and merged the two halves of a lunch break straight back into one session spanning it. The
+same rule stops time on an *excluded* site from being absorbed into its neighbours, which it had
+been.
+
+**History is converted, not deleted.** `v3-loginwindow-away-gaps` turns each lock-screen sample into
+an `away_gaps` row and deletes the sessions built from them; neighbours are untouched because the
+lock screen was its own sample. `RollupBackfillJob` then re-rolls every day once, keyed on
+`rollups_recomputed_for`, because `writeRollups` only ever re-rolls today and yesterday and a frozen
+past day would otherwise keep reporting lock-screen hours as observed forever. Its call site is
+pinned by the guardrail test, as is the live wiring in `LiveCaptureController`.
+
+**What cannot be recovered.** 25 samples totalling 147 hours are a real application running
+unattended with no lock screen in them — display sleep, a lid closed on an unlocked machine. In the
+data they are indistinguishable from a person sitting in one app for nine hours. They stay, the
+migration report counts them, and retention removes them in 90 days; the live idle detector means
+no new ones. Days containing one (2026-08-29 reads 23.8 h) are still wrong and are flagged as such
+in MVP-HANDOFF §2.
+
+**Measured on a scratch backup of the live DB** (`.backup`, never the live file), applying the
+conversion SQL:
+
+| | Before | After |
+|---|---|---|
+| Total screen-session hours | 751.4 | 342.4 |
+| `away_gaps` rows / hours | 0 / 0 | 504 / 630.8 |
+| Largest single "activity" | lock screen, 402.8 h | Claude desktop, 156.7 h |
+| 2026-09-08 observed h / attributed | 15.0 / 4% | 2.8 / 24% |
+| 2026-09-04 | 23.4 / 12% | 6.8 / 42% |
+| 2026-09-02 | 24.3 / 23% | 9.8 / 53% |
+| 2026-09-01 | 19.2 / 39% | 7.7 / 86% |
+
+The product's headline rate was understated by 3–5× on every recent day. The 08-28 figure the
+handoff quoted (70.4%) was computed live from that day's recap and happens to be close to the
+corrected 89%; the persisted rollups for the same days were not.
+
+**Rejected:** clipping over-long samples at the 2-hour ceiling in the migration. It would have
+manufactured a boundary the data does not contain and made the numbers look better than what is
+known. The context-switch analyzer already ignores such spans; observed time should say what was
+recorded and the doc should say what is doubtful.

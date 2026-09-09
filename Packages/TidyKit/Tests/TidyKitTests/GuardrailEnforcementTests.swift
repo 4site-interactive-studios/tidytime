@@ -185,10 +185,29 @@ final class GuardrailEnforcementTests: XCTestCase {
             encoding: .utf8)
         let body = code(env)
         for job in ["SessionBuildJob(", "DayClassifier(", "EntityBootstrap(",
-                    "SuggestionEngine(", "ResolutionQuestionGenerator(", "RetentionJob("] {
+                    "SuggestionEngine(", "ResolutionQuestionGenerator(", "RetentionJob(",
+                    "RollupBackfillJob("] {
             XCTAssertTrue(body.contains(job),
                           "\(job) has no call site in runPipelineOnce. The table it writes will sit "
                         + "at zero rows and nothing will report it — this repo's signature failure.")
+        }
+    }
+
+    /// The away subsystem was the seventh orphan: `PowerObserver`, `IdleReader` and the idle
+    /// threshold all existed, were tested, and were wired to nothing — so the lock screen was
+    /// recorded as an application for 44 days (54% of all screen time) and `away_gaps` had 0 rows.
+    /// This pins the live wiring so removing it is a test failure, not a silent regression.
+    func testAwayDetectionIsWiredIntoLiveCapture() throws {
+        let src = try String(
+            contentsOf: TestSupport.repoRoot()
+                .appendingPathComponent("Packages/TidyKit/Sources/TidyCapture/LiveCapture.swift"),
+            encoding: .utf8)
+        let body = code(src)
+        for needle in ["PowerObserver(", "idle: IdleReader()", "idleThresholdSeconds: config.capture.idleThresholdSeconds",
+                       "power.start()", "coordinator.suspend()", "MetadataKey.captureLastAlive"] {
+            XCTAssertTrue(body.contains(needle),
+                          "LiveCaptureController no longer contains '\(needle)'. Without it the lock "
+                        + "screen is recorded as work and away_gaps sits at zero rows.")
         }
     }
 }

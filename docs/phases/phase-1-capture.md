@@ -250,11 +250,13 @@ and no gaps across sleep/lock."* Each item is human-verifiable:
       new snapshot (dedupe).
 - [ ] **CPU stays quiet** — sustained average **< ~2%**, no fan spin — over the day (⚠️ build-time
       check: measure with Instruments / `powermetrics` on the M2-or-newer target).
-- [ ] **No gaps across sleep/lock** — sleeping, waking, locking, and unlocking produce clean
+- [x] **No gaps across sleep/lock** — sleeping, waking, locking, and unlocking produce clean
       `away_gaps` (`cause` `sleep`/`lock`) and leave the timeline with no dangling open sample and
-      no overlapping/duplicate sessions.
-- [ ] **Idle** beyond `capture.idle_threshold_seconds` ends the current session and opens an `away_gaps` row
-      (`cause='idle'`); returning opens a fresh sample, not a resurrected one.
+      no overlapping/duplicate sessions. *(Wired 2026-09-09 — unit-verified in `AwayCaptureTests`;
+      the live notification names are undocumented, so confirm `away_gaps` grows after a lock on the
+      target machine. Before this date the lock screen was recorded as an application.)*
+- [x] **Idle** beyond `capture.idle_threshold_seconds` ends the current session and opens an `away_gaps` row
+      (`cause='idle'`); returning opens a fresh sample, not a resurrected one. *(2026-09-09.)*
 - [x] **No credential is ever stored** (added 2026-09-09, G10) — a browser tab at
       `http://127.0.0.1:<port>/?code=…` (TidyTime's own sign-in) produces **no** row; a tab at
       `https://<work-site>/login?code=…` produces a row whose `url` has no query string; page text

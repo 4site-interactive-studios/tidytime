@@ -240,6 +240,16 @@ this pipeline (see [module-map.md](module-map.md#protocol-seams-the-extension-po
 
 ## Idle & away → `away_gaps`
 
+> **As built (2026-09-09).** The state machine below lives in `CaptureCoordinator` as one `away`
+> value: `poll()` reads `IdleReader` first (≥ `capture.idle_threshold_seconds` → away, backdated to
+> `now − idle`), then treats a frontmost `com.apple.loginwindow` / `com.apple.ScreenSaver.Engine`
+> as away (never a sample), and `PowerObserver` relays sleep/wake and lock/unlock into
+> `awayBegan` / `awayEnded`. Overlaps collapse to one gap: earliest start, specific cause over
+> `idle`, and an end notification only closes a gap of its own cause (a wake with the screen still
+> locked is not a return). `SessionBuildJob` subtracts `away_gaps` from slices, so sessions never
+> cover away time. **None of this was wired until 2026-09-09** — see open-items §D2 for what 44 days
+> of unwired code did to the data.
+
 **Idle detection** uses `CGEventSource` seconds-since-last-input, polled on the heartbeat tick
 (not a tight loop). Threshold defaults to **10 minutes** (`capture.idle_threshold_seconds` =
 600).

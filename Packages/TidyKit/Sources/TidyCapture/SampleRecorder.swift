@@ -55,6 +55,13 @@ public struct SampleRecorder: Sendable {
         return true
     }
 
+    /// Close whatever sample is open at `at` — the user went away (idle, lock, sleep) or the app is
+    /// stopping. Without this the open sample is closed by the *next* `record`, which stretches it
+    /// across the whole absence.
+    public func closeOpenSample(at: Int64) throws {
+        try db.closeOpenSample(before: at)
+    }
+
     public func recordAwayGap(_ draft: AwayGapDraft) throws {
         let now = Int64(clock.now.timeIntervalSince1970)
         try db.insertAwayGap(AwayGap(

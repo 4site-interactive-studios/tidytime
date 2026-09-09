@@ -327,6 +327,11 @@ public final class AppEnvironment: ObservableObject {
 
             try refreshToday()
             try writeRollups()
+            // Once per data migration that rewrites history: re-roll EVERY day, not just today and
+            // yesterday, so a frozen past day cannot keep reporting lock-screen hours as observed.
+            _ = try? RollupBackfillJob(
+                db: db, assembler: RecapAssembler(db: db, config: config, selfPersonId: (try? db.selfPerson())?.id),
+                timeZone: timeZone).runIfNeeded()
             try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
             writeDiagnosticsSnapshot()
         } catch {

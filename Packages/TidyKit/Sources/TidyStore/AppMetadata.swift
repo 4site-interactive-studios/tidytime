@@ -27,6 +27,13 @@ public enum MetadataKey {
     /// separate from ``lastRunBuild``: two identical builds in different locations are the case
     /// that fooled a live debugging session, and only the path tells them apart.
     public static let lastRunBundlePath = "last_run_bundle_path"
+    /// Epoch seconds of the last capture heartbeat. On the next start, any sample still open is
+    /// closed *here* rather than at launch time, so a crash, reboot or force-quit does not stretch
+    /// the last thing on screen across the hours the app was not running.
+    public static let captureLastAlive = "capture_last_alive"
+    /// Name of the last data migration whose consequences the daily rollups have been recomputed
+    /// for. `RollupBackfillJob` compares it and re-rolls every day once when it changes.
+    public static let rollupsRecomputedFor = "rollups_recomputed_for"
 }
 
 extension AppDatabase {

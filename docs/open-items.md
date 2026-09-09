@@ -363,8 +363,23 @@ database rather than doc prose. Two findings are serious; both were verified by 
 
 ### D2 — 54% of all recorded "screen" time is the macOS lock screen
 
-- [ ] **Open.** Every observed-time and attribution-rate number in the product is computed against a
-  denominator that is more than half lock screen.
+- [x] **Resolved** (date: 2026-09-09). The away subsystem is wired: `CaptureCoordinator` holds one
+  away state fed by the idle reader (backdated to when input stopped), the lock screen / screen
+  saver being frontmost (`AwayApps` — never recorded as a sample), and the sleep / lock
+  notifications relayed by `PowerObserver`. Entering it closes the open sample at the boundary;
+  leaving it writes one `away_gaps` row. `SessionBuildJob` subtracts `away_gaps` from every slice
+  and the sessionizer treats a hole ≥ the detour tolerance as a hard boundary. The
+  `v3-loginwindow-away-gaps` migration converts every historical lock-screen sample into an
+  `away_gaps` row and deletes its sessions; `RollupBackfillJob` then re-rolls every day once.
+  A capture heartbeat (`capture_last_alive`) closes a sample left open by a crash at the last
+  known-alive time, and pausing/quitting closes it explicitly.
+  **Not recoverable:** 25 samples (147 h) of a real app running unattended with no lock screen in
+  them predate idle detection and cannot be told apart from work; they stay, are counted by the
+  migration report, and age out with retention. Rates computed on the re-baselined data are in
+  [MVP-HANDOFF.md](MVP-HANDOFF.md) §2. Live check: `SELECT COUNT(*) FROM away_gaps` must grow daily,
+  and `sessions` must contain no `app:com.apple.loginwindow`.
+- **Was:** every observed-time and attribution-rate number in the product was computed against a
+  denominator that was more than half lock screen.
 - **Verified live:** of 740 recorded `kind='screen'` session hours, **400.1 hours (54.1%)** carry
   `context_key = 'app:com.apple.loginwindow'` — the single largest "activity" in the database, ahead
   of every real application. `away_gaps` has **0 rows** after 44 days.

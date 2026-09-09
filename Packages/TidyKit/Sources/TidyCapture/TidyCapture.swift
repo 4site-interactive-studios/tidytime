@@ -68,4 +68,7 @@ public struct AwayGapDraft: Sendable, Equatable {
     public var end: Int64
     public var durationSeconds: Int
     public var cause: String   // 'idle' | 'lock' | 'sleep'
+    public init(start: Int64, end: Int64, durationSeconds: Int, cause: String) {
+        self.start = start; self.end = end; self.durationSeconds = durationSeconds; self.cause = cause
+    }
 }

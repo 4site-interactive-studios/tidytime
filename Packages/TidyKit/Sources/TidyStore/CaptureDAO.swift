@@ -12,13 +12,16 @@ extension AppDatabase {
         try writer.write { db in var s = sample; try s.insert(db); return s.id! }
     }
 
-    /// Close the previously open sample (set `ended_at`) when a new context supersedes it.
+    /// Close the previously open sample (set `ended_at`) when a new context supersedes it, or
+    /// when the user went away at `newStart`. Clamped to the sample's own start: an away boundary
+    /// backdated by the idle threshold can land before a sample that opened on a title change with
+    /// no input, and an open sample left behind is the exact thing this call exists to prevent.
     public func closeOpenSample(before newStart: Int64) throws {
         try writer.write { db in
             try db.execute(sql: """
-                UPDATE activity_samples SET ended_at = ?
-                WHERE ended_at IS NULL AND started_at <= ?
-                """, arguments: [newStart, newStart])
+                UPDATE activity_samples SET ended_at = MAX(started_at, ?)
+                WHERE ended_at IS NULL
+                """, arguments: [newStart])
         }
     }
 
@@ -137,6 +140,11 @@ extension AppDatabase {
 
     /// All away gaps overlapping a window — used to clip unattended time out of the
     /// context-switch metric (round-2 finding R1-2).
+    /// When capture first recorded anything — the floor for a rollup backfill.
+    public func earliestSessionStart() throws -> Int64? {
+        try writer.read { db in try Int64.fetchOne(db, sql: "SELECT MIN(started_at) FROM sessions") }
+    }
+
     public func awayGaps(from start: Int64, to end: Int64) throws -> [AwayGap] {
         try writer.read { db in
             try AwayGap

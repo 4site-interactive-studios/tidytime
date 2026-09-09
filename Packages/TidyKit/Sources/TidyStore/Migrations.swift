@@ -9,6 +9,7 @@ import GRDB
 ///   v1-understand (Phase 5), v1-ai (Phase 6)
 ///   v2-context-switches, v2-page-snapshot-time-index
 ///   v3-credential-scrub — data-only: rewrites rows, adds no schema
+///   v3-loginwindow-away-gaps — data-only: lock-screen samples → away_gaps
 public enum Migrations {
     public static func migrator() -> DatabaseMigrator {
         var m = DatabaseMigrator()
@@ -21,7 +22,17 @@ public enum Migrations {
         registerV1AI(&m)
         registerV2ContextSwitches(&m)
         registerV3CredentialScrub(&m)
+        registerV3LoginWindowAwayGaps(&m)
         return m
+    }
+
+    /// Lock-screen samples become `away_gaps` rows and their sessions are deleted (2026-09-08
+    /// audit: 54% of recorded screen time was `app:com.apple.loginwindow`). Data only. See
+    /// `AwayGapBackfill`; `RollupBackfillJob` re-rolls every day's rollup once afterwards.
+    private static func registerV3LoginWindowAwayGaps(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v3-loginwindow-away-gaps") { db in
+            try AwayGapBackfill.apply(db)
+        }
     }
 
     /// One-shot rewrite of credential material stored before G10 (2026-09-08 audit): query strings

@@ -12,6 +12,17 @@ import TidyStore
 ///  - **content tick** (`captureContent`, slow — e.g. every 20s, and once right after a browser change):
 ///    grabs `document.body.innerText` for the current browser sample, deduped by content hash.
 ///
+/// **Away.** The coordinator holds one `away` state, fed by three signals, and while it is set
+/// nothing is recorded: the idle reader crossing `idleThresholdSeconds` (backdated to when input
+/// stopped), the lock screen or screen saver being frontmost (`AwayApps`), and the sleep / lock
+/// notifications relayed by `PowerObserver` through `awayBegan` / `awayEnded`. Entering it closes
+/// the open sample *at the boundary*; leaving it writes one `away_gaps` row and resumes. Overlaps
+/// collapse: the earliest boundary wins and a specific cause (lock, sleep) replaces `idle`.
+///
+/// Until 2026-09-09 none of this was wired. `PowerObserver`, `IdleReader` and `AwayGapDetector`
+/// existed and were tested and had no caller, so the lock screen was recorded as an application —
+/// 54% of all screen time — and `away_gaps` had 0 rows after 44 days.
+///
 /// Pure logic + injected protocols → fully testable by driving `poll()`/`captureContent()` manually.
 /// The live Timer/notification wiring lives in `LiveCapture.swift` (`LiveCaptureController`).
 public final class CaptureCoordinator: @unchecked Sendable {
@@ -21,29 +32,63 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private let policy: ContextSignature.Policy
     private let exclusions: CaptureExclusions
     private let scrubber: URLScrubber
+    private let idle: IdleReading?
+    private let idleThresholdSeconds: Int
+    private let clock: TidyClock
 
     private let lock = NSLock()
     private var lastSignature: String?
     private var lastContentURL: String?
     private var currentSampleId: Int64?
     private var currentContext: FrontmostContext?
+    private var away: AwayState?
+
+    private struct AwayState { var start: Int64; var cause: String }
 
     public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder,
                 policy: ContextSignature.Policy = .default,
                 exclusions: CaptureExclusions = CaptureExclusions(),
-                scrubber: URLScrubber = URLScrubber()) {
+                scrubber: URLScrubber = URLScrubber(),
+                idle: IdleReading? = nil, idleThresholdSeconds: Int = 600,
+                clock: TidyClock = SystemClock()) {
         self.reader = reader
         self.browser = browser
         self.recorder = recorder
         self.policy = policy
         self.exclusions = exclusions
         self.scrubber = scrubber
+        self.idle = idle
+        self.idleThresholdSeconds = idleThresholdSeconds
+        self.clock = clock
     }
 
     /// Detection tick. Records a new sample iff the observed context changed. Returns true if it did.
     @discardableResult
     public func poll() throws -> Bool {
+        let now = Int64(clock.now.timeIntervalSince1970)
+
+        // Idle first: it needs no frontmost app, and while away nothing below may run.
+        if let idle, idleThresholdSeconds > 0 {
+            let idleFor = Int64(idle.idleSeconds())
+            if idleFor >= Int64(idleThresholdSeconds) {
+                // The block ended when input stopped, not when we noticed.
+                if currentAway() == nil { try beginAway(cause: "idle", at: now - idleFor) }
+                return false
+            }
+            if let a = currentAway(), a.cause == "idle" { try endAway(at: now) }
+        }
+
         guard let observed = reader.current() else { return false }
+
+        // The lock screen is not an application the user is using.
+        if AwayApps.isAway(observed.appBundleId) {
+            if currentAway() == nil { try beginAway(cause: "lock", at: now) }
+            return false
+        }
+        // A real app in front while a lock/sleep gap is open: the end notification was late or
+        // never came (they are undocumented). The user is back; say so.
+        if let a = currentAway(), a.cause != "idle" { try endAway(at: now) }
+
         var ctx = observed
         if exclusions.excludes(appBundleId: ctx.appBundleId) { return dropCurrent() }
         // Enrich a browser context with the active tab's URL/title (lightweight — no page text).
@@ -105,6 +150,57 @@ public final class CaptureCoordinator: @unchecked Sendable {
         lastContentURL = nil
         lock.unlock()
         return false
+    }
+
+    // MARK: Away
+
+    public var isAway: Bool { currentAway() != nil }
+
+    private func currentAway() -> AwayState? {
+        lock.lock(); defer { lock.unlock() }
+        return away
+    }
+
+    /// Enter the away state at `start`: close the open sample there, forget the context, remember
+    /// the boundary. Recording resumes on `endAway`.
+    private func beginAway(cause: String, at start: Int64) throws {
+        try recorder.closeOpenSample(at: start)
+        _ = dropCurrent()
+        lock.lock(); away = AwayState(start: start, cause: cause); lock.unlock()
+    }
+
+    /// Leave the away state: one `away_gaps` row for the closed interval. The next `poll` records
+    /// a fresh sample because `dropCurrent` cleared the signature.
+    private func endAway(at end: Int64) throws {
+        lock.lock(); let a = away; away = nil; lock.unlock()
+        guard let a, end > a.start else { return }
+        try recorder.recordAwayGap(AwayGapDraft(
+            start: a.start, end: end, durationSeconds: Int(end - a.start), cause: a.cause))
+    }
+
+    /// A sleep or lock notification. If already idle, keep the earlier boundary and take the more
+    /// specific cause; if already in a lock/sleep gap, the first one stands (a sleep that follows a
+    /// lock is still the same absence).
+    public func awayBegan(cause: String, at date: Date) throws {
+        let at = Int64(date.timeIntervalSince1970)
+        guard let a = currentAway() else { return try beginAway(cause: cause, at: at) }
+        if a.cause == "idle" { lock.lock(); away?.cause = cause; lock.unlock() }
+    }
+
+    /// A wake or unlock notification. Ends the gap only when its cause matches: a wake while the
+    /// screen is still locked is not the user coming back, and `poll` will see the lock screen.
+    public func awayEnded(cause: String, at date: Date) throws {
+        guard let a = currentAway(), a.cause == cause else { return }
+        try endAway(at: Int64(date.timeIntervalSince1970))
+    }
+
+    /// Capture is stopping (pause, quit). Close the open sample now and bank any open gap, so
+    /// nothing is left dangling for the next launch to stretch.
+    public func suspend() throws {
+        let now = Int64(clock.now.timeIntervalSince1970)
+        if currentAway() != nil { try endAway(at: now) }
+        try recorder.closeOpenSample(at: now)
+        _ = dropCurrent()
     }
 
     /// Content tick. Captures + stores page text for the current browser sample (deduped). No-op for
