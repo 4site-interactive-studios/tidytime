@@ -25,11 +25,13 @@ import Foundation
 /// the fragment, and nothing in this product keys on a fragment. Userinfo (`user:pass@host`) is
 /// dropped for the obvious reason.
 ///
-/// Two outcomes, because one is not enough: a loopback URL *with* a query is the app's own OAuth
-/// redirect (or another local tool's), a page that is on screen for under a second and carries no
-/// attribution value. Stripping its query would store a harmless, useless `http://127.0.0.1:port/`;
-/// dropping the row is more honest. Loopback *without* a query is a local dev server and is
-/// recorded normally — `web:localhost` is real work.
+/// Two outcomes, because one is not enough: a loopback URL whose query or fragment carries a
+/// credential-shaped key (`code`, `token`, `state`, …) is an OAuth redirect — the app's own, or
+/// another local tool's — a page on screen for under a second with no attribution value. Stripping
+/// it would store a harmless, useless `http://127.0.0.1:port/`; dropping the row is more honest.
+/// Every other loopback URL is a local dev server and is recorded normally, query stripped like any
+/// other host: `web:localhost` is real work, and the live DB held 288 loopback URLs with a query
+/// string of which none was a redirect. (The first cut dropped all of them — review finding.)
 public struct URLScrubber: Sendable, Equatable {
     public enum Outcome: Equatable, Sendable {
         /// Store this (possibly rewritten) URL.
@@ -49,8 +51,8 @@ public struct URLScrubber: Sendable, Equatable {
         "client_secret", "api_key", "apikey", "secret", "password", "session_state",
     ]
 
-    /// Hosts on which a query string means "an OAuth redirect or a local tool's callback", never
-    /// something worth attributing.
+    /// Hosts on which a credential-shaped query means "an OAuth redirect", never something worth
+    /// attributing.
     public static let loopbackHosts: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]
 
     public init(identityQueryKeys: [String] = []) {
@@ -67,21 +69,30 @@ public struct URLScrubber: Sendable, Equatable {
         guard var comps = URLComponents(string: url) else { return .store(Self.fallbackStrip(url)) }
 
         let host = comps.host?.lowercased() ?? ""
-        let hasQuery = !(comps.query ?? "").isEmpty || !(comps.fragment ?? "").isEmpty
-        if Self.loopbackHosts.contains(host), hasQuery { return .drop }
+        if Self.loopbackHosts.contains(host), Self.carriesCredentialKey(comps) { return .drop }
 
         comps.fragment = nil
         comps.user = nil
         comps.password = nil
 
-        if let items = comps.queryItems, !items.isEmpty {
+        // Filter on the percent-encoded items so an allowlisted value is stored byte-for-byte as it
+        // appeared (`queryItems` would decode `%2B` to `+` and re-encode it differently).
+        if let items = comps.percentEncodedQueryItems, !items.isEmpty {
             let kept = items.filter { identityQueryKeys.contains($0.name.lowercased()) }
-            comps.queryItems = kept.isEmpty ? nil : kept
+            comps.percentEncodedQueryItems = kept.isEmpty ? nil : kept
         } else {
             // A bare `?` with nothing after it still parses as an empty query; normalise it away.
             comps.query = nil
         }
         return .store(comps.string ?? Self.fallbackStrip(url))
+    }
+
+    /// Does the query or fragment name a key that is never stored? Fragments count because the
+    /// OAuth implicit flow delivers `#access_token=…`.
+    public static func carriesCredentialKey(_ comps: URLComponents) -> Bool {
+        let keys = (comps.percentEncodedQueryItems ?? []).map { $0.name.lowercased() }
+            + (comps.fragment ?? "").split(separator: "&").compactMap { $0.split(separator: "=").first.map { $0.lowercased() } }
+        return keys.contains { Self.neverStoredKeys.contains($0) }
     }
 
     /// Convenience for callers that have no drop path: the stored form, or `nil` when the URL

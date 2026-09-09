@@ -48,7 +48,11 @@ public enum Migrations {
     /// audit: 54% of recorded screen time was `app:com.apple.loginwindow`). Data only. See
     /// `AwayGapBackfill`; `RollupBackfillJob` re-rolls every day's rollup once afterwards.
     private static func registerV3LoginWindowAwayGaps(_ m: inout DatabaseMigrator) {
-        m.registerMigration("v3-loginwindow-away-gaps") { db in
+        // `.immediate`: these touch rows, not schema, so foreign keys can stay ON while they run —
+        // and GRDB's default (`.deferred`, FKs off then checked before commit) turns any orphan
+        // into a migration that fails on every launch. The deletes also remove children
+        // explicitly; this is the second guard.
+        m.registerMigration("v3-loginwindow-away-gaps", foreignKeyChecks: .immediate) { db in
             try AwayGapBackfill.apply(db)
         }
     }
@@ -57,7 +61,7 @@ public enum Migrations {
     /// and fragments stripped from stored URLs, loopback-redirect rows dropped, free-text columns
     /// pattern-redacted. Same scrubber and redactor as the live ingest paths — see `CredentialScrub`.
     private static func registerV3CredentialScrub(_ m: inout DatabaseMigrator) {
-        m.registerMigration("v3-credential-scrub") { db in
+        m.registerMigration("v3-credential-scrub", foreignKeyChecks: .immediate) { db in
             try CredentialScrub.apply(db)
         }
     }

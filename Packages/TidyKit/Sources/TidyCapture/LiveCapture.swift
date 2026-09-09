@@ -1,7 +1,7 @@
 // Live macOS capture adapters. Compile-checked but NOT unit-tested — they require a running app,
 // granted Accessibility/Automation, and a real browser (see DECISIONS.md, Phase 0: headless
-// strategy). All logic they feed (Sessionizer, SampleRecorder, PageTextPolicy, AwayGapDetector) is
-// tested separately with fakes.
+// strategy). All logic they feed (Sessionizer, SampleRecorder, PageTextPolicy, CaptureCoordinator's
+// away state) is tested separately with fakes.
 import Foundation
 import TidyCore
 import TidyStore
@@ -184,27 +184,31 @@ public struct IdleReader: IdleReading {
 public final class PowerObserver {
     private let onBegin: (String, Date) -> Void
     private let onEnd: (String, Date) -> Void
+    private let clock: () -> Date
     private var tokens: [NSObjectProtocol] = []
 
-    public init(onBegin: @escaping (String, Date) -> Void, onEnd: @escaping (String, Date) -> Void) {
+    public init(clock: @escaping () -> Date = { Date() },
+                onBegin: @escaping (String, Date) -> Void, onEnd: @escaping (String, Date) -> Void) {
+        self.clock = clock
         self.onBegin = onBegin
         self.onEnd = onEnd
     }
 
     public func start() {
+        guard tokens.isEmpty else { return }
         let ws = NSWorkspace.shared.notificationCenter
         tokens.append(ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onBegin("sleep", Date()) }
+            MainActor.assumeIsolated { guard let self else { return }; self.onBegin("sleep", self.clock()) }
         })
         tokens.append(ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onEnd("sleep", Date()) }
+            MainActor.assumeIsolated { guard let self else { return }; self.onEnd("sleep", self.clock()) }
         })
         let dc = DistributedNotificationCenter.default()
         tokens.append(dc.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onBegin("lock", Date()) }
+            MainActor.assumeIsolated { guard let self else { return }; self.onBegin("lock", self.clock()) }
         })
         tokens.append(dc.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onEnd("lock", Date()) }
+            MainActor.assumeIsolated { guard let self else { return }; self.onEnd("lock", self.clock()) }
         })
     }
 
@@ -229,14 +233,16 @@ public final class LiveCaptureController {
     private let db: AppDatabase
     private let coordinator: CaptureCoordinator
     private let power: PowerObserver
+    private let logger: TidyLogger?
     private let detectionInterval: TimeInterval
     private let contentInterval: TimeInterval
     private var detectionTimer: Timer?
     private var contentTimer: Timer?
     private var activationToken: NSObjectProtocol?
 
-    public init(db: AppDatabase, config: Config) {
+    public init(db: AppDatabase, config: Config, logger: TidyLogger? = nil) {
         self.db = db
+        self.logger = logger?.scoped("capture")
         let reader = FrontmostReader(browserBundleIds: [KnownApps.chrome])
         let browser: BrowserAdapter? = config.capture.browser == "chrome" ? ChromeAdapter() : nil
         let scrubber = URLScrubber(config.capture)
@@ -250,18 +256,31 @@ public final class LiveCaptureController {
                                              idleThresholdSeconds: config.capture.idleThresholdSeconds)
         self.coordinator = coordinator
         // Sleep/lock boundaries go through the coordinator so they merge with idle into ONE gap.
+        // A failure here is the D2 failure mode (away time silently unrecorded) — it is logged.
+        let log = self.logger
         self.power = PowerObserver(
-            onBegin: { cause, at in try? coordinator.awayBegan(cause: cause, at: at) },
-            onEnd: { cause, at in try? coordinator.awayEnded(cause: cause, at: at) })
+            onBegin: { cause, at in
+                do { try coordinator.awayBegan(cause: cause, at: at) }
+                catch { log?.error("away begin not recorded", ["cause": cause, "error": "\(error)"]) }
+            },
+            onEnd: { cause, at in
+                do { try coordinator.awayEnded(cause: cause, at: at) }
+                catch { log?.error("away gap not recorded", ["cause": cause, "error": "\(error)"]) }
+            })
         self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
         self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
     }
 
     public func start() {
+        // Idempotent: a second start without a stop must not stack timers and observers.
+        guard detectionTimer == nil else { return }
         // A sample left open by a crash, reboot or force-quit must end when the app was last
-        // known alive — not now, hours later. Bounded by the content-tick heartbeat below.
-        if let raw = try? db.metadata(MetadataKey.captureLastAlive), let lastAlive = Int64(raw) {
-            try? db.closeOpenSample(before: lastAlive)
+        // known alive — not now, hours later. The CaptureHeartbeat ledger row (every content
+        // tick) is that timestamp.
+        do {
+            if let lastAlive = try db.lastJobStart("CaptureHeartbeat") { try db.closeOpenSample(before: lastAlive) }
+        } catch {
+            logger?.error("could not close the sample left open by the previous run", ["error": "\(error)"])
         }
         power.start()
         let nc = NSWorkspace.shared.notificationCenter
@@ -277,9 +296,12 @@ public final class LiveCaptureController {
                 guard let self else { return }
                 try? self.coordinator.captureContent()
                 let now = Int64(Date().timeIntervalSince1970)
-                try? self.db.setMetadata(MetadataKey.captureLastAlive, String(now))
-                try? self.db.recordJobRun("CaptureHeartbeat", startedAt: now, finishedAt: now, outcome: .ok,
-                                          detail: self.coordinator.isAway ? "away" : nil)
+                do {
+                    try self.db.recordJobRun("CaptureHeartbeat", startedAt: now, finishedAt: now, outcome: .ok,
+                                             detail: self.coordinator.isAway ? "away" : nil)
+                } catch {
+                    self.logger?.error("capture heartbeat not recorded", ["error": "\(error)"])
+                }
             }
         }
         try? coordinator.poll()
@@ -292,7 +314,8 @@ public final class LiveCaptureController {
         activationToken = nil
         power.stop()
         // Close the open sample and bank any open gap; nothing dangles for the next start.
-        try? coordinator.suspend()
+        do { try coordinator.suspend() }
+        catch { logger?.error("capture suspend did not close the open sample", ["error": "\(error)"]) }
     }
 }
 #endif

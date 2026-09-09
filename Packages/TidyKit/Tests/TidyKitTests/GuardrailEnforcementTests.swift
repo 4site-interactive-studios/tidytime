@@ -204,7 +204,7 @@ final class GuardrailEnforcementTests: XCTestCase {
             encoding: .utf8)
         let body = code(src)
         for needle in ["PowerObserver(", "idle: IdleReader()", "idleThresholdSeconds: config.capture.idleThresholdSeconds",
-                       "power.start()", "coordinator.suspend()", "MetadataKey.captureLastAlive"] {
+                       "power.start()", "coordinator.suspend()", "lastJobStart(\"CaptureHeartbeat\")"] {
             XCTAssertTrue(body.contains(needle),
                           "LiveCaptureController no longer contains '\(needle)'. Without it the lock "
                         + "screen is recorded as work and away_gaps sits at zero rows.")

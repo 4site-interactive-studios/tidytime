@@ -165,7 +165,7 @@ public final class AppEnvironment: ObservableObject {
         }
         #if canImport(AppKit)
         if captureController == nil {
-            captureController = LiveCaptureController(db: db, config: config)
+            captureController = LiveCaptureController(db: db, config: config, logger: logger)
         }
         captureController?.start()
         #endif
@@ -242,14 +242,16 @@ public final class AppEnvironment: ObservableObject {
     /// batch operations over already-captured rows, not part of the capture hot path.
     private func startPeriodicJobs() {
         jobTimer?.invalidate()
-        jobTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // Cadences come from the job registry, which is what Doctor measures staleness against:
+        // two copies of the number would let a battery tweak here turn every job orange there.
+        jobTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(JobRegistry.pipelineInterval), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.runPipelineOnce() }
         }
         runPipelineOnce()
 
         // Ingest runs on its own, slower cadence and never blocks capture.
         ingestReadiness = ingest.readinessReport()
-        ingestTimer = Timer.scheduledTimer(withTimeInterval: 900, repeats: true) { [weak self] _ in
+        ingestTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(JobRegistry.ingestInterval), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.runIngestOnce() }
         }
         runIngestOnce()
@@ -289,7 +291,7 @@ public final class AppEnvironment: ObservableObject {
             // Every step records itself in `job_runs` (see JobLedger.swift): the Doctor pane reads
             // the registry against that ledger, so a step that stops being called shows as
             // NEVER RAN instead of as a table quietly sitting at zero rows.
-            try db.track("SessionBuildJob") {
+            try db.track("SessionBuildJob", logger: logger) {
                 try builder.rebuild(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             }
             // Vocabulary before classification: rung 1 matches against `entity_signals`, and until
@@ -299,8 +301,8 @@ public final class AppEnvironment: ObservableObject {
             // `try?`: the vocabulary is best-effort. A throw here must not skip DayClassifier,
             // the recap refresh, rollups and retention for the whole pass — the same reasoning
             // DayClassifier already applies to its own signal write.
-            _ = try? db.track("EntityBootstrap") { try EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970)) }
-            _ = try db.track("DayClassifier") {
+            _ = try? db.track("EntityBootstrap", logger: logger) { try EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970)) }
+            _ = try db.track("DayClassifier", logger: logger) {
                 try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             }
             // Turn classified sessions into time-entry suggestions. This is the product's actual
@@ -323,7 +325,7 @@ public final class AppEnvironment: ObservableObject {
                 selfPersonId: (try? db.selfPerson())?.id,
                 organization: config.organization,
                 deepLinkPattern: config.productive.taskDeepLinkPattern)
-            _ = try db.track("SuggestionEngine") {
+            _ = try db.track("SuggestionEngine", logger: logger) {
                 try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
             }
 
@@ -331,21 +333,20 @@ public final class AppEnvironment: ObservableObject {
             // Questions section is permanently empty and the user has no way to teach the app about
             // a domain it cannot place — the manual repair channel was closed alongside the
             // automatic one.
-            _ = try? db.track("ResolutionQuestionGenerator") {
+            _ = try? db.track("ResolutionQuestionGenerator", logger: logger) {
                 try ResolutionQuestionGenerator().generate(
                     db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
             }
 
-            try db.track("RecapRefresh") { try refreshToday() }
-            try db.track("DailyRollup") { try writeRollups() }
+            try db.track("RecapRefresh", logger: logger) { try refreshToday() }
+            try db.track("DailyRollup", logger: logger) { try writeRollups() }
             // Once per data migration that rewrites history: re-roll EVERY day, not just today and
             // yesterday, so a frozen past day cannot keep reporting lock-screen hours as observed.
-            _ = try? db.track("RollupBackfillJob") {
-                try RollupBackfillJob(
-                    db: db, assembler: RecapAssembler(db: db, config: config, selfPersonId: (try? db.selfPerson())?.id),
-                    timeZone: timeZone).runIfNeeded()
+            _ = try? db.track("RollupBackfillJob", logger: logger) {
+                try RollupBackfillJob(db: db, config: config, selfPersonId: (try? db.selfPerson())?.id,
+                                      timeZone: timeZone, logger: logger).runIfNeeded()
             }
-            try db.track("RetentionJob") {
+            try db.track("RetentionJob", logger: logger) {
                 try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
             }
             let snapshotStarted = Int64(Date().timeIntervalSince1970)
@@ -395,18 +396,12 @@ public final class AppEnvironment: ObservableObject {
 
     /// Pure helpers — `nonisolated` so they're callable (and testable) off the main actor.
     public nonisolated static func dayString(_ date: Date, _ tz: TimeZone) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"; f.timeZone = tz
-        return f.string(from: date)
+        LocalDay.string(date, tz)
     }
 
     /// Local-day bounds as epoch seconds.
     public nonisolated static func dayBounds(for date: Date, timeZone: TimeZone) -> (Int64, Int64) {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timeZone
-        let start = cal.startOfDay(for: date)
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
-        return (Int64(start.timeIntervalSince1970), Int64(end.timeIntervalSince1970))
+        LocalDay.bounds(for: date, timeZone: timeZone)
     }
 
     /// Write the redacted bundle to `paths.diagnosticsURL` so tooling (and an AI assistant) can read

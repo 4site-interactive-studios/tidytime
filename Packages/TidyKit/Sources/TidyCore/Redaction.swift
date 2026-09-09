@@ -32,10 +32,18 @@ public enum Redactor {
             #"(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}"#,        // GitHub tokens
             #"fw_[A-Za-z0-9]{20,}"#,                               // Fireworks API keys
             #"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"#, // JWTs
-            #"(?i)\b(code|access_token|id_token|refresh_token|client_secret|api_key|apikey|token|secret|password)=[^&\s"'<>]{8,}"#, // query-style kv
+            #"(?i)\b(code|access_token|id_token|refresh_token|client_secret|api_key|apikey|token|secret|password)=(?!\*\*\*)[^&\s"'<>]{8,}"#, // query-style kv; never re-matches the mask
         ]
         return sources.compactMap { try? NSRegularExpression(pattern: $0) }
     }()
+
+    /// Literal substrings every pattern above requires (case-insensitive). A SQL `LIKE` prefilter
+    /// on these lets the one-shot database scrub skip the ~93% of rows no pattern can match,
+    /// instead of running sixteen regexes over every window title ever recorded.
+    public static let anchors: [String] = [
+        "bearer", "xox", "x-auth-token", "x-api-key", "api", "authorization", "sk-", "ya29.",
+        "googleusercontent", "1//", "GOCSPX-", "AIzaSy", "4/0A", "4%2F0A", "gh", "github_pat", "fw_", "eyJ", "=",
+    ]
 
     public static let mask = "***REDACTED***"
 
@@ -48,7 +56,7 @@ public enum Redactor {
     public static func redact(_ text: String, secrets: [String] = []) -> String {
         // Fast path: nothing token-shaped can hide in a short string, and this is on the capture
         // path for every window title.
-        if text.count < minimumSecretLength { return text }
+        if text.utf8.count < minimumSecretLength { return text }
         var out = text
         for secret in secrets where secret.count >= minimumSecretLength {
             out = out.replacingOccurrences(of: secret, with: mask)

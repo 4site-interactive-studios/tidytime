@@ -285,6 +285,11 @@ human-verifiable:
 - [ ] The in-app **Doctor view** shows the **config path** and a **per-permission status** block
       (Accessibility, Automation, Notifications, launch-at-login) plus the bundle id + signing
       identity.
+- [x] *(added 2026-09-09)* The Doctor view and `make diagnose` show a **Jobs** section: every job in
+      `JobRegistry` with its last run, outcome and cadence. A registered job nothing calls reads
+      **NEVER RAN** in red; a job whose timer stopped reads **stale**; an ingest source with no
+      credential reads **skipped** with the reason. Human check: kill the app for 20 minutes, relaunch,
+      confirm nothing reads stale after the first pass.
 - [ ] (supporting) The DB opens in **WAL** with the **`v1-capture`** migration applied; `config.json`
       loads; a dummy secret **round-trips** through the Keychain and never appears in logs.
 

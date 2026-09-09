@@ -42,8 +42,22 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var currentSampleId: Int64?
     private var currentContext: FrontmostContext?
     private var away: AwayState?
+    /// When the last gap ended. An idle boundary backdated by the idle counter can never land
+    /// before it, or a wake with no input yet would open a second gap inside the one just written.
+    private var lastAwayEnd: Int64 = 0
 
-    private struct AwayState { var start: Int64; var cause: String }
+    private struct AwayState {
+        var start: Int64
+        var cause: String
+        /// Who opened it: `poll` (idle counter or the lock screen in front) or a notification.
+        var fromNotification: Bool
+    }
+
+    /// A lock/sleep gap opened by a notification is normally closed by its matching notification.
+    /// `poll` may close it on seeing a real application in front only after this long, because
+    /// `willSleep` fires seconds *before* the machine sleeps, with the real app still frontmost —
+    /// and macOS's lock/unlock notifications are undocumented, so "never" is not an option either.
+    static let notificationGraceSeconds: Int64 = 30
 
     public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder,
                 policy: ContextSignature.Policy = .default,
@@ -63,44 +77,54 @@ public final class CaptureCoordinator: @unchecked Sendable {
     }
 
     /// Detection tick. Records a new sample iff the observed context changed. Returns true if it did.
+    ///
+    /// Order matters. The lock screen is checked before idle so that typing the password (input at
+    /// the lock screen) does not end an idle gap and immediately open a lock gap; idle is checked
+    /// before the "real app in front ends a lock gap" rule so a wake with no input yet stays away.
     @discardableResult
     public func poll() throws -> Bool {
         let now = Int64(clock.now.timeIntervalSince1970)
+        guard let observed = reader.current() else { return false }
 
-        // Idle first: it needs no frontmost app, and while away nothing below may run.
+        // The lock screen is not an application the user is using.
+        if AwayApps.isAway(observed.appBundleId) {
+            if currentAway() == nil { try beginAway(cause: "lock", at: now, fromNotification: false) }
+            return false
+        }
+
         if let idle, idleThresholdSeconds > 0 {
             let idleFor = Int64(idle.idleSeconds())
             if idleFor >= Int64(idleThresholdSeconds) {
-                // The block ended when input stopped, not when we noticed.
-                if currentAway() == nil { try beginAway(cause: "idle", at: now - idleFor) }
+                // The block ended when input stopped, not when we noticed — but never before the
+                // gap that was just closed.
+                if currentAway() == nil { try beginAway(cause: "idle", at: now - idleFor, fromNotification: false) }
                 return false
             }
             if let a = currentAway(), a.cause == "idle" { try endAway(at: now) }
         }
 
-        guard let observed = reader.current() else { return false }
-
-        // The lock screen is not an application the user is using.
-        if AwayApps.isAway(observed.appBundleId) {
-            if currentAway() == nil { try beginAway(cause: "lock", at: now) }
-            return false
+        // A real app in front while a lock/sleep gap is open. If `poll` opened it (lock screen was
+        // in front), the user is back. If a notification opened it, wait out the grace window —
+        // the end notification is the honest boundary, and it may simply not have fired yet.
+        if let a = currentAway(), a.cause != "idle",
+           !a.fromNotification || now - a.start >= Self.notificationGraceSeconds {
+            try endAway(at: now)
         }
-        // A real app in front while a lock/sleep gap is open: the end notification was late or
-        // never came (they are undocumented). The user is back; say so.
-        if let a = currentAway(), a.cause != "idle" { try endAway(at: now) }
+        // Still away (inside the grace window): nothing is recorded until the gap ends.
+        if currentAway() != nil { return false }
 
         var ctx = observed
-        if exclusions.excludes(appBundleId: ctx.appBundleId) { return dropCurrent() }
+        if exclusions.excludes(appBundleId: ctx.appBundleId) { return try dropCurrent() }
         // Enrich a browser context with the active tab's URL/title (lightweight — no page text).
         if ctx.isBrowser, let browser, let tab = browser.activeTab() {
             // Excluded BEFORE the URL and title are copied onto the context. Recording the row and
             // filtering later would already have put the thing on disk, which is the whole point.
-            if tab.isPrivate || exclusions.excludes(url: tab.url) { return dropCurrent() }
+            if tab.isPrivate || exclusions.excludes(url: tab.url) { return try dropCurrent() }
             // Credential-bearing query strings and fragments never reach the context, so neither
             // the sample nor a later page snapshot can carry them (G10). A loopback URL with a
             // query is an OAuth redirect — TidyTime's own included — and is dropped outright.
             switch scrubber.scrub(tab.url) {
-            case .drop: return dropCurrent()
+            case .drop: return try dropCurrent()
             case .store(let safe): ctx.url = safe
             }
             if let title = tab.title, !title.isEmpty { ctx.windowTitle = title }
@@ -136,20 +160,28 @@ public final class CaptureCoordinator: @unchecked Sendable {
         return true
     }
 
-    /// Forget the current context without recording anything.
+    /// Forget the current context without recording anything, and close the open sample now: an
+    /// excluded page is a hole in the timeline, not time that belongs to whatever came before it.
+    /// (Until the 2026-09-09 review the sample stayed open and was closed by the next record — so
+    /// two hours on an excluded site were attributed to the previous app.)
     ///
     /// Clearing `currentSampleId` matters as much as skipping the insert: a later content tick reads
     /// it, and leaving the previous sample's id in place would file the excluded page's text under
     /// the last thing that *was* recorded. Clearing `lastSignature` means stepping back out of the
     /// excluded window records a fresh sample rather than being swallowed as "unchanged".
-    private func dropCurrent() -> Bool {
+    private func dropCurrent() throws -> Bool {
+        try recorder.closeOpenSample(at: Int64(clock.now.timeIntervalSince1970))
+        forgetCurrent()
+        return false
+    }
+
+    private func forgetCurrent() {
         lock.lock()
         currentContext = nil
         currentSampleId = nil
         lastSignature = nil
         lastContentURL = nil
         lock.unlock()
-        return false
     }
 
     // MARK: Away
@@ -161,21 +193,26 @@ public final class CaptureCoordinator: @unchecked Sendable {
         return away
     }
 
-    /// Enter the away state at `start`: close the open sample there, forget the context, remember
-    /// the boundary. Recording resumes on `endAway`.
-    private func beginAway(cause: String, at start: Int64) throws {
-        try recorder.closeOpenSample(at: start)
-        _ = dropCurrent()
-        lock.lock(); away = AwayState(start: start, cause: cause); lock.unlock()
+    /// Enter the away state at `start` (clamped to the end of the previous gap): close the open
+    /// sample there, forget the context, remember the boundary. Recording resumes on `endAway`.
+    private func beginAway(cause: String, at start: Int64, fromNotification: Bool) throws {
+        lock.lock(); let floor = lastAwayEnd; lock.unlock()
+        let clamped = max(start, floor)
+        try recorder.closeOpenSample(at: clamped)
+        forgetCurrent()
+        lock.lock(); away = AwayState(start: clamped, cause: cause, fromNotification: fromNotification); lock.unlock()
     }
 
-    /// Leave the away state: one `away_gaps` row for the closed interval. The next `poll` records
-    /// a fresh sample because `dropCurrent` cleared the signature.
+    /// Leave the away state: one `away_gaps` row for the closed interval, written BEFORE the state
+    /// is cleared, so a failed insert leaves the gap open to be retried rather than lost. The next
+    /// `poll` records a fresh sample because `forgetCurrent` cleared the signature.
     private func endAway(at end: Int64) throws {
-        lock.lock(); let a = away; away = nil; lock.unlock()
-        guard let a, end > a.start else { return }
-        try recorder.recordAwayGap(AwayGapDraft(
-            start: a.start, end: end, durationSeconds: Int(end - a.start), cause: a.cause))
+        guard let a = currentAway() else { return }
+        if end > a.start {
+            try recorder.recordAwayGap(AwayGapDraft(
+                start: a.start, end: end, durationSeconds: Int(end - a.start), cause: a.cause))
+        }
+        lock.lock(); away = nil; lastAwayEnd = max(lastAwayEnd, end); lock.unlock()
     }
 
     /// A sleep or lock notification. If already idle, keep the earlier boundary and take the more
@@ -183,8 +220,8 @@ public final class CaptureCoordinator: @unchecked Sendable {
     /// lock is still the same absence).
     public func awayBegan(cause: String, at date: Date) throws {
         let at = Int64(date.timeIntervalSince1970)
-        guard let a = currentAway() else { return try beginAway(cause: cause, at: at) }
-        if a.cause == "idle" { lock.lock(); away?.cause = cause; lock.unlock() }
+        guard let a = currentAway() else { return try beginAway(cause: cause, at: at, fromNotification: true) }
+        if a.cause == "idle" { lock.lock(); away?.cause = cause; away?.fromNotification = true; lock.unlock() }
     }
 
     /// A wake or unlock notification. Ends the gap only when its cause matches: a wake while the
@@ -200,7 +237,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
         let now = Int64(clock.now.timeIntervalSince1970)
         if currentAway() != nil { try endAway(at: now) }
         try recorder.closeOpenSample(at: now)
-        _ = dropCurrent()
+        forgetCurrent()
     }
 
     /// Content tick. Captures + stores page text for the current browser sample (deduped). No-op for

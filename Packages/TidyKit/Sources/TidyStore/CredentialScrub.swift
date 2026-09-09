@@ -15,29 +15,23 @@ import TidyCore
 /// work with one more way to fail (the flag write) and one more orphan risk (the job is never
 /// called). A migration cannot be skipped.
 ///
-/// Columns are listed explicitly rather than discovered, because *which* columns are free text from
-/// an external source is a judgement: `sessions.title` is derived from a scrubbed sample and
-/// rebuilt daily, `entity_signals.token` is our own vocabulary, `sync_state.last_error` was already
-/// redacted at the write. The guardrail test scans every TEXT column so a column missing from
-/// this list surfaces as a failure rather than a silent gap.
+/// **Every TEXT column is redacted, discovered from the schema, not listed.** The first cut listed
+/// six columns by judgement and reasoned that derived ones (`sessions.title`, `suggestions.note`)
+/// are rebuilt — but only *today* is rebuilt, and a session built last month from a token-bearing
+/// window title keeps the token forever. `Redactor` is shape-based and over-redaction is safe, so
+/// there is no column it is wrong to run over. The same discovered list feeds `violations`, so the
+/// purge and the check cannot disagree.
 public enum CredentialScrub {
-    /// Table → text columns that are redacted in place.
-    public static let redactedColumns: [(table: String, column: String)] = [
-        ("activity_samples", "window_title"),
-        ("page_snapshots", "title"),
-        ("page_snapshots", "text"),
-        ("pd_tasks", "description"),
-        ("pd_time_entries", "note"),
-        ("slack_messages", "text"),
-    ]
-
-    /// Table → URL column that is scrubbed in place; a `.drop` outcome deletes the row.
+    /// URL columns, scrubbed with `URLScrubber` rather than redacted; a `.drop` deletes the row.
     /// Snapshots first, so a dropped snapshot is counted explicitly rather than disappearing
     /// through the `ON DELETE CASCADE` from its sample.
     public static let urlColumns: [(table: String, column: String)] = [
         ("page_snapshots", "url"),
         ("activity_samples", "url"),
     ]
+
+    /// Tables that hold no external text and are skipped by the redaction pass.
+    static let internalTables: Set<String> = ["app_metadata", "grdb_migrations"]
 
     public struct Report: Equatable, Sendable {
         public var urlsRewritten = 0
@@ -66,6 +60,13 @@ public enum CredentialScrub {
                 let value: String = row["v"]
                 switch scrubber.scrub(value) {
                 case .drop:
+                    // Explicit, not via cascade: GRDB runs a migration with foreign keys OFF and
+                    // checks them before commit, so an orphaned child would abort the migration —
+                    // and with it every launch of the app (review finding, verified live).
+                    if table == "activity_samples", tables.contains("page_snapshots") {
+                        try db.execute(sql: "DELETE FROM page_snapshots WHERE sample_id = ?", arguments: [id])
+                        report.rowsDropped += db.changesCount
+                    }
                     try db.execute(sql: "DELETE FROM \"\(table)\" WHERE id = ?", arguments: [id])
                     report.rowsDropped += 1
                 case .store(let safe) where safe != value:
@@ -78,11 +79,16 @@ public enum CredentialScrub {
             }
         }
 
-        for (table, column) in redactedColumns where tables.contains(table) {
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT rowid AS rid, "\(column)" AS v FROM "\(table)" WHERE "\(column)" IS NOT NULL
+        let urlColumnNames = Set(urlColumns.map { "\($0.table).\($0.column)" })
+        for (table, column) in try textColumns(db)
+        where !urlColumnNames.contains("\(table).\(column)") && !internalTables.contains(table) {
+            // Prefilter on the literal anchors every redactor pattern needs, so the regexes run on
+            // the few rows that can match rather than every window title ever recorded.
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT rowid AS rid, "\(column)" AS v FROM "\(table)"
+                WHERE "\(column)" IS NOT NULL AND typeof("\(column)") = 'text' AND (\(anchorPredicate(column)))
                 """)
-            for row in rows {
+            while let row = try cursor.next() {
                 let rid: Int64 = row["rid"]
                 let value: String = row["v"]
                 let safe = Redactor.redact(value)
@@ -95,8 +101,13 @@ public enum CredentialScrub {
         return report
     }
 
-    /// Every TEXT-affinity column in the schema, for the guardrail scan. Discovered, not listed,
-    /// so a new table is covered the day it is created.
+    static func anchorPredicate(_ column: String) -> String {
+        Redactor.anchors.map { "\"\(column)\" LIKE '%\($0.replacingOccurrences(of: "'", with: "''"))%'" }
+            .joined(separator: " OR ")
+    }
+
+    /// Every TEXT-affinity column in the schema, for the purge and the guardrail scan. Discovered,
+    /// not listed, so a new table is covered the day it is created.
     public static func textColumns(_ db: Database) throws -> [(table: String, column: String)] {
         let tables = try String.fetchAll(db, sql: """
             SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'
@@ -114,31 +125,21 @@ public enum CredentialScrub {
         return out
     }
 
-    /// Credential shapes a stored value must never match. Shared with the guardrail test and the
-    /// `diagnose` CLI so the definition of "clean" is written once.
-    public static let forbiddenPatterns: [String] = [
-        #"(?i)[?&#](code|access_token|id_token|refresh_token|client_secret|api_key|token|password)="#,
-        #"GOCSPX-[A-Za-z0-9_\-]{10,}"#,
-        #"AIzaSy[A-Za-z0-9_\-]{20,}"#,
-        #"xox[baprse]-[A-Za-z0-9\-]{10,}"#,
-        #"sk-[A-Za-z0-9\-]{16,}"#,
-        #"ya29\.[A-Za-z0-9._\-]{10,}"#,
-        #"4/0A[A-Za-z0-9_\-]{20,}"#,
-        #"4%2F0A[A-Za-z0-9_\-]{20,}"#,
-        #"(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}"#,
-    ]
-
-    /// Count of stored values matching any forbidden pattern, per `table.column`. Empty means clean.
+    /// Count of stored values the redactor would still change, per `table.column`. Empty means
+    /// clean. One definition of "clean" — the redactor's — so the scan can never report a violation
+    /// the purge cannot clear (the first cut had its own pattern list and did exactly that).
+    /// URL columns are checked for a credential-shaped query key, the thing the scrubber removes.
     public static func violations(_ db: Database) throws -> [String: Int] {
-        let regexes = forbiddenPatterns.compactMap { try? NSRegularExpression(pattern: $0) }
         var out: [String: Int] = [:]
-        for (table, column) in try textColumns(db) {
+        let urlColumnNames = Set(urlColumns.map { "\($0.table).\($0.column)" })
+        for (table, column) in try textColumns(db) where !internalTables.contains(table) {
             let values = try String.fetchAll(db, sql: """
                 SELECT "\(column)" FROM "\(table)" WHERE "\(column)" IS NOT NULL AND typeof("\(column)") = 'text'
                 """)
+            let isURL = urlColumnNames.contains("\(table).\(column)")
             let hits = values.filter { v in
-                let range = NSRange(v.startIndex..<v.endIndex, in: v)
-                return regexes.contains { $0.firstMatch(in: v, range: range) != nil }
+                if isURL, let comps = URLComponents(string: v), URLScrubber.carriesCredentialKey(comps) { return true }
+                return Redactor.redact(v) != v
             }.count
             if hits > 0 { out["\(table).\(column)"] = hits }
         }

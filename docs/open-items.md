@@ -325,11 +325,13 @@ database rather than doc prose. Two findings are serious; both were verified by 
 
 - [x] **Resolved** (date: 2026-09-09) — guardrail [G10](guardrails.md#g10--captured-and-mirrored-content-is-credential-scrubbed-before-the-insert).
   All four steps below landed in one change: `URLScrubber` at the capture boundary (allowlist, not
-  denylist — query strings are dropped unless the key is in `capture.identity_query_keys`, and
-  loopback-with-query is never recorded); `Redactor` on every ingested free-text column (page text,
-  titles, Productive descriptions and notes, Slack text); the `v3-credential-scrub` migration
-  rewrote existing rows with the same code; `CredentialScrubTests` drives credential shapes through
-  the real paths and `CredentialScrub.violations` scans every TEXT column in the schema.
+  denylist — query strings are dropped unless the key is in `capture.identity_query_keys`, and a
+  loopback URL whose query names a credential key such as `code` is never recorded); `Redactor` on
+  every ingested free-text column (page text, titles, Productive descriptions and notes, Slack
+  text); the `v3-credential-scrub` migration rewrote existing rows — every TEXT column in the
+  schema — with the same code; `CredentialScrubTests` drives credential shapes through the real
+  paths and `CredentialScrub.violations` scans every TEXT column with the redactor's own definition
+  of clean.
   `make diagnose` prints that scan against the live DB as `credential_shapes`. Before the fix was
   installed it read `activity_samples.url=64, window_title=3, page_snapshots.url=10, text=1,
   pd_tasks.description=4, slack_messages.text=3` — more than the audit counted, because the scan

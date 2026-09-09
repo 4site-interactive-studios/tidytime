@@ -92,7 +92,6 @@ final class JobLedgerTests: XCTestCase {
         XCTAssertEqual(report[0].summary, "ok · 60s ago (every 5m)")
         XCTAssertEqual(report[2].summary, "failed · 10s ago (every 5m) — boom")
         XCTAssertEqual(report[4].summary, "NEVER RAN")
-        XCTAssertEqual(JobHealth.problems(report).map(\.job.name), ["B", "C", "E"])
     }
 
     func testTrackRecordsOutcomeAndRethrows() throws {
@@ -105,6 +104,19 @@ final class JobLedgerTests: XCTestCase {
         XCTAssertEqual(run.runCount, 2)
         XCTAssertEqual(run.failCount, 1)
         XCTAssertTrue(run.lastDetail?.contains("bad") ?? false)
+    }
+
+    func testKnownSecretValuesAreRedactedFromDetail() throws {
+        // A provider error body echoes the exact token that failed; it has no recognisable shape,
+        // so only the caller's known-secret list can catch it (G6, same as sync_state.last_error).
+        let db = try AppDatabase.inMemory()
+        let secret = "super-secret-refresh-token-value"
+        XCTAssertThrowsError(try db.track("CalendarSync", secrets: [secret]) {
+            throw TidyError.ingest("invalid_grant: bad token \(secret)")
+        })
+        let run = try XCTUnwrap(try db.jobRuns().first)
+        XCTAssertFalse(run.lastDetail?.contains(secret) ?? true)
+        XCTAssertTrue(run.lastDetail?.contains(Redactor.mask) ?? false)
     }
 
     func testDetailIsRedacted() throws {

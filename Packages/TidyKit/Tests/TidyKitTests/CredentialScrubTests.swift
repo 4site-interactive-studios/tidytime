@@ -56,18 +56,32 @@ final class CredentialScrubTests: XCTestCase {
                        .store("https://host.example/path"))
     }
 
-    func testLoopbackWithQueryIsDroppedEntirely() {
-        // TidyTime's own Google sign-in redirect.
+    func testLoopbackOAuthRedirectIsDroppedEntirely() {
+        // TidyTime's own Google sign-in redirect, and the implicit-flow fragment.
         let s = URLScrubber()
         XCTAssertEqual(s.scrub("http://127.0.0.1:53211/?code=\(authCode)&state=abc"), .drop)
         XCTAssertEqual(s.scrub("http://localhost:3000/callback?code=\(authCode)"), .drop)
         XCTAssertEqual(s.scrub("http://localhost:3000/#access_token=x"), .drop)
     }
 
-    func testLoopbackWithoutQueryIsRecorded() {
-        // A local dev server is real work — `web:localhost` carries hours of sessions.
+    func testLoopbackDevServerIsRecordedWithItsQueryStripped() {
+        // A local dev server is real work — `web:localhost` carries hours of sessions, and the live
+        // DB held 288 loopback URLs with a query, none of them a redirect. Review finding: the
+        // first cut dropped all of them.
         XCTAssertEqual(URLScrubber().scrub("http://localhost:3000/dashboard"),
                        .store("http://localhost:3000/dashboard"))
+        XCTAssertEqual(URLScrubber().scrub("http://localhost:3000/pages/donate?mode=test&tab=2"),
+                       .store("http://localhost:3000/pages/donate"))
+    }
+
+    func testAllowlistedValueIsStoredByteForByte() {
+        XCTAssertEqual(URLScrubber(identityQueryKeys: ["id"]).scrub("https://x.example/doc?id=a%2Bb&code=\(authCode)"),
+                       .store("https://x.example/doc?id=a%2Bb"))
+    }
+
+    func testRedactorNeverReRedactsItsOwnMask() {
+        let once = Redactor.redact("see https://x.example/?code=\(authCode) now")
+        XCTAssertEqual(Redactor.redact(once), once, "idempotent, or the scan flags what the scrub wrote")
     }
 
     func testOddURLsStillLoseTheQuery() {
@@ -248,6 +262,46 @@ final class CredentialScrubTests: XCTestCase {
         XCTAssertEqual(try db.tableRowCounts()["page_snapshots"], 1)
         let description = try db.writer.read { try String.fetchOne($0, sql: "SELECT description FROM pd_tasks") }
         XCTAssertEqual(description, "paste \(Redactor.mask) here")
+        XCTAssertEqual(try CredentialScrub.violations(db), [:])
+    }
+
+    /// Review finding, verified live: a snapshot filed under a dropped sample but carrying a clean
+    /// URL of its own. GRDB checks foreign keys before committing a migration, so an orphan aborts
+    /// it — and with it every launch. The child must go explicitly.
+    func testDroppingASampleNeverOrphansItsSnapshot() throws {
+        let db = try AppDatabase.inMemory()
+        try db.writer.write { d in
+            try d.execute(sql: """
+                INSERT INTO activity_samples (id, started_at, app_bundle_id, app_name, is_browser, url, source, created_at)
+                VALUES (1, 1, 'com.google.Chrome', 'Chrome', 1, 'http://127.0.0.1:5000/?code=\(self.authCode)', 'switch', 1)
+                """)
+            try d.execute(sql: """
+                INSERT INTO page_snapshots (sample_id, captured_at, url, title, content_hash, text, text_bytes)
+                VALUES (1, 2, 'http://127.0.0.1:5000/', 't', 'h', 'You may close this window', 4)
+                """)
+        }
+        let report = try db.writer.write { d -> CredentialScrub.Report in
+            try d.execute(sql: "PRAGMA foreign_keys = OFF")
+            let r = try CredentialScrub.apply(d)
+            try d.checkForeignKeys()
+            return r
+        }
+        XCTAssertEqual(report.rowsDropped, 2)
+        XCTAssertEqual(try db.tableRowCounts()["page_snapshots"], 0)
+    }
+
+    /// Sessions and suggestions built last month from a token-bearing title are never rebuilt; the
+    /// purge must reach them, so every TEXT column is redacted, not a hand-picked six.
+    func testHistoricalSessionTitlesArePurgedToo() throws {
+        let db = try AppDatabase.inMemory()
+        try db.writer.write { d in
+            try d.execute(sql: """
+                INSERT INTO sessions (kind, started_at, ended_at, duration_seconds, title, context_key, primary_app, created_at)
+                VALUES ('screen', 1, 2, 1, 'paste \(self.clientSecret)', 'app:x', 'x', 0)
+                """)
+        }
+        let report = try db.writer.write { try CredentialScrub.apply($0) }
+        XCTAssertEqual(report.textsRedacted, 1)
         XCTAssertEqual(try CredentialScrub.violations(db), [:])
     }
 

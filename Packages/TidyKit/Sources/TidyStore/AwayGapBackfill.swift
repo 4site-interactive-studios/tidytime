@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import TidyCore
 
 /// One-shot conversion of lock-screen "activity" into away gaps.
 ///
@@ -20,13 +21,12 @@ import GRDB
 /// left as they are, counted in `Report.unattendedSamplesLeft`, and age out with retention; the live
 /// idle detector prevents new ones.
 public enum AwayGapBackfill {
-    /// Mirrors `TidyCapture.AwayApps` — TidyStore cannot import TidyCapture, and the list is two
-    /// bundle ids. A test pins that the two stay equal.
-    public static let awayBundleIds: [String] = ["com.apple.loginwindow", "com.apple.ScreenSaver.Engine"]
+    /// The same two bundle ids capture refuses to record — `AwayApps` lives in TidyCore for that.
+    public static var awayBundleIds: [String] { AwayApps.bundleIds.sorted() }
 
     /// A single sample longer than this with no lock screen in it is almost certainly unattended.
-    /// Same ceiling `ContextSwitchAnalyzer.maxPlausibleFocusSeconds` uses (2 h).
-    public static let unattendedCeilingSeconds: Int64 = 7200
+    /// The ceiling the context-switch metric already uses, not a second copy of the number.
+    public static let unattendedCeilingSeconds = Int64(ContextSwitchAnalyzer.defaultMaxPlausibleFocusSeconds)
 
     public struct Report: Equatable, Sendable {
         public var gapsInserted = 0
@@ -61,6 +61,9 @@ public enum AwayGapBackfill {
                     """, arguments: [start, end, end - start, now])
                 report.gapsInserted += 1
             }
+            // Children first, explicitly: a migration runs with foreign keys OFF and is checked
+            // before commit, so relying on the cascade would abort the migration on any orphan.
+            try db.execute(sql: "DELETE FROM page_snapshots WHERE sample_id = ?", arguments: [id])
             try db.execute(sql: "DELETE FROM activity_samples WHERE id = ?", arguments: [id])
             report.samplesDeleted += 1
         }
@@ -71,10 +74,20 @@ public enum AwayGapBackfill {
             """, arguments: StatementArguments(keys))
         report.sessionsDeleted = db.changesCount
 
+        // History changed under the rollups: clear the marker so `RollupBackfillJob` re-rolls every
+        // day once. The coupling lives here, in the migration that causes it, not in a version
+        // string somebody has to remember to bump in another module.
+        try invalidateRollups(db)
+
         report.unattendedSamplesLeft = try Int.fetchOne(db, sql: """
             SELECT COUNT(*) FROM activity_samples
             WHERE COALESCE(ended_at, started_at) - started_at > ?
             """, arguments: [unattendedCeilingSeconds]) ?? 0
         return report
+    }
+
+    /// Any data migration that rewrites sample or session history calls this in its transaction.
+    public static func invalidateRollups(_ db: Database) throws {
+        try db.execute(sql: "DELETE FROM app_metadata WHERE key = ?", arguments: [MetadataKey.rollupsRecomputedFor])
     }
 }

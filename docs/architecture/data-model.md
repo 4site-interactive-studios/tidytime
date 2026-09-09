@@ -47,6 +47,11 @@ A key/value table, so new bookkeeping needs **no migration**. The keys `TidyStor
 | `schema_version` | migrator | Applied schema version. |
 | `last_run_build` | every launch | `BuildInfo.summary` of the build that last opened this database — `0.1.0 (8dda588, built 2026-07-27T12:53:16Z)`. |
 | `last_run_bundle_path` | every launch | Filesystem path of that bundle. |
+| `rollups_recomputed_for` | `RollupBackfillJob` | Present when every day's rollup reflects current history. A data migration that rewrites samples or sessions **deletes** it (`AwayGapBackfill.invalidateRollups`); the job re-rolls every day once while it is absent. |
+
+"Last known alive" for capture is **not** a metadata key: it is the `CaptureHeartbeat` row in
+`job_runs`, written every content tick, and read on the next start to close a sample a crash left
+open at the right time.
 
 The last two exist because a version string alone cannot tell a current install from a stale copy
 of the same version. On 2026-08-28 a stale build kept relaunching from `~/.Trash` via a leftover

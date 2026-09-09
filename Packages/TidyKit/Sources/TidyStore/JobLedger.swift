@@ -132,26 +132,28 @@ public enum JobHealth {
         }
     }
 
-    /// The names that need attention — what the menu bar / Doctor badge should count.
-    public static func problems(_ statuses: [JobStatus]) -> [JobStatus] {
-        statuses.filter { $0.verdict == .neverRan || $0.verdict == .failed || $0.verdict == .stale }
-    }
 }
 
 extension AppDatabase {
     /// Upsert the ledger row for `name`. `finishedAt` nil means "started, not finished".
+    /// `secrets` are the caller's known secret values: error bodies from providers echo the very
+    /// token that failed, and pattern redaction alone misses a token that has no recognisable shape
+    /// (G6 — the same reason `sync_state.last_error` takes them).
     public func recordJobRun(_ name: String, startedAt: Int64, finishedAt: Int64?,
-                             outcome: JobOutcome, detail: String? = nil) throws {
+                             outcome: JobOutcome, detail: String? = nil, secrets: [String] = []) throws {
+        let safeDetail = detail.map { String(Redactor.redact($0, secrets: secrets).prefix(500)) }
         try writer.write { db in
-            let prior = try JobRun.fetchOne(db, key: name)
-            let row = JobRun(
-                name: name, lastStartedAt: startedAt, lastFinishedAt: finishedAt,
-                lastOutcome: outcome.rawValue,
-                // Detail can echo an error body; redacted here so the ledger is as safe as the log.
-                lastDetail: detail.map { String(Redactor.redact($0).prefix(500)) },
-                runCount: (prior?.runCount ?? 0) + 1,
-                failCount: (prior?.failCount ?? 0) + (outcome == .failed ? 1 : 0))
-            try row.save(db)
+            try db.execute(sql: """
+                INSERT INTO job_runs (name, last_started_at, last_finished_at, last_outcome, last_detail, run_count, fail_count)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    last_started_at = excluded.last_started_at,
+                    last_finished_at = excluded.last_finished_at,
+                    last_outcome = excluded.last_outcome,
+                    last_detail = excluded.last_detail,
+                    run_count = run_count + 1,
+                    fail_count = fail_count + excluded.fail_count
+                """, arguments: [name, startedAt, finishedAt, outcome.rawValue, safeDetail, outcome == .failed ? 1 : 0])
         }
     }
 
@@ -159,43 +161,62 @@ extension AppDatabase {
         try writer.read { db in try JobRun.order(sql: "name").fetchAll(db) }
     }
 
+    /// When `name` last started, if ever. The `CaptureHeartbeat` row doubles as "last known alive".
+    public func lastJobStart(_ name: String) throws -> Int64? {
+        try writer.read { db in try JobRun.fetchOne(db, key: name)?.lastStartedAt }
+    }
+
     /// Run `body` and record the outcome under `name`. Rethrows, so the caller's own error policy
-    /// (`try` vs `try?`) is unchanged; the ledger row is written either way.
+    /// (`try` vs `try?`) is unchanged; the ledger row is written either way. A ledger write that
+    /// itself fails is logged through `logger` — silently losing it would make Doctor report a job
+    /// that ran as NEVER RAN with nothing to explain the discrepancy.
     @discardableResult
-    public func track<T>(_ name: String, clock: TidyClock = SystemClock(), _ body: () throws -> T) throws -> T {
+    public func track<T>(_ name: String, clock: TidyClock = SystemClock(), secrets: [String] = [],
+                         logger: TidyLogger? = nil, _ body: () throws -> T) throws -> T {
         let started = Int64(clock.now.timeIntervalSince1970)
         do {
             let result = try body()
-            try? recordJobRun(name, startedAt: started, finishedAt: Int64(clock.now.timeIntervalSince1970), outcome: .ok)
+            finish(name, started: started, clock: clock, error: nil, secrets: secrets, logger: logger)
             return result
         } catch {
-            try? recordJobRun(name, startedAt: started, finishedAt: Int64(clock.now.timeIntervalSince1970),
-                              outcome: .failed, detail: "\(error)")
+            finish(name, started: started, clock: clock, error: error, secrets: secrets, logger: logger)
             throw error
         }
     }
 
     /// Async variant for the ingest engines.
     @discardableResult
-    public func track<T>(_ name: String, clock: TidyClock = SystemClock(),
-                         _ body: () async throws -> T) async throws -> T {
+    public func track<T>(_ name: String, clock: TidyClock = SystemClock(), secrets: [String] = [],
+                         logger: TidyLogger? = nil, _ body: () async throws -> T) async throws -> T {
         let started = Int64(clock.now.timeIntervalSince1970)
         do {
             let result = try await body()
-            try? recordJobRun(name, startedAt: started, finishedAt: Int64(clock.now.timeIntervalSince1970), outcome: .ok)
+            finish(name, started: started, clock: clock, error: nil, secrets: secrets, logger: logger)
             return result
         } catch {
-            try? recordJobRun(name, startedAt: started, finishedAt: Int64(clock.now.timeIntervalSince1970),
-                              outcome: .failed, detail: "\(error)")
+            finish(name, started: started, clock: clock, error: error, secrets: secrets, logger: logger)
             throw error
+        }
+    }
+
+    /// The one outcome policy both `track` overloads share.
+    private func finish(_ name: String, started: Int64, clock: TidyClock, error: Error?,
+                        secrets: [String], logger: TidyLogger?) {
+        do {
+            try recordJobRun(name, startedAt: started, finishedAt: Int64(clock.now.timeIntervalSince1970),
+                             outcome: error == nil ? .ok : .failed, detail: error.map { "\($0)" }, secrets: secrets)
+        } catch {
+            logger?.error("job ledger write failed", ["job": name, "error": "\(error)"])
         }
     }
 
     /// A job that was considered and deliberately not run, with the reason — so Doctor can tell
     /// "no credential" from "nobody calls this".
-    public func recordJobSkipped(_ name: String, reason: String, clock: TidyClock = SystemClock()) {
+    public func recordJobSkipped(_ name: String, reason: String, clock: TidyClock = SystemClock(),
+                                 logger: TidyLogger? = nil) {
         let now = Int64(clock.now.timeIntervalSince1970)
-        try? recordJobRun(name, startedAt: now, finishedAt: now, outcome: .skipped, detail: reason)
+        do { try recordJobRun(name, startedAt: now, finishedAt: now, outcome: .skipped, detail: reason) }
+        catch { logger?.error("job ledger write failed", ["job": name, "error": "\(error)"]) }
     }
 
     /// Registry read against the ledger, for Doctor and diagnostics.

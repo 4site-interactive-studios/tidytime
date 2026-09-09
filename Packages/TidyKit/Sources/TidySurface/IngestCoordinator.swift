@@ -115,7 +115,7 @@ public struct IngestCoordinator: Sendable {
                 logger?.debug("ingest skipped", ["source": source.rawValue, "reason": r.explanation])
                 // Considered and not run is a ledger entry too — "skipped: no credential" must
                 // never be confused with "nobody calls this".
-                db.recordJobSkipped(Self.jobName(source), reason: r.explanation, clock: clock)
+                db.recordJobSkipped(Self.jobName(source), reason: r.explanation, clock: clock, logger: logger)
                 continue
             }
             // Snapshot secret values BEFORE running: a failure path may DELETE a secret (e.g. a
@@ -124,7 +124,8 @@ public struct IngestCoordinator: Sendable {
             // LastErrorRedactionTests).
             let known = SecretKey.all.compactMap { (try? secrets.get($0)) ?? nil }
             do {
-                try await db.track(Self.jobName(source), clock: clock) { try await run(source) }
+                // `known` goes into the ledger row for the same reason it goes into last_error.
+                try await db.track(Self.jobName(source), clock: clock, secrets: known, logger: logger) { try await run(source) }
                 logger?.info("ingest ok", ["source": source.rawValue])
             } catch {
                 // last_error surfaces in Doctor and the diagnostics bundle, and provider error

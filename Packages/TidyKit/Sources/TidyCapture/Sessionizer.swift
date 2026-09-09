@@ -27,8 +27,10 @@ public struct Sessionizer: Sendable {
                 // was deliberately removed: an away gap (idle, lock, sleep) or an excluded site. A
                 // hole shorter than the detour tolerance is absorbed like a detour; a longer one is
                 // a hard boundary, or the two halves of a lunch break would re-merge into one
-                // session spanning the break (2026-09-09, D2).
-                if Int(seg.start - run.end) >= detourTolerance { break }
+                // session spanning the break (2026-09-09, D2). Contiguous slices (hole 0) always
+                // merge — a tolerance of 0 means "absorb no detours", not "never merge".
+                let hole = Int(seg.start - run.end)
+                if hole > 0, hole >= detourTolerance { break }
                 if seg.groupingKey == run.groupingKey {
                     run.extend(with: seg)
                     i += 1

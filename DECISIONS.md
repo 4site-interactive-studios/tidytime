@@ -2425,3 +2425,75 @@ stack was `KeychainSecretStore.get → SecItemCopyMatching` — the CLI reads ev
 redaction list, and a freshly built binary has a new signature, so macOS shows a Keychain prompt
 that a headless invocation never sees. Pre-existing (the CLI always did this); worth knowing before
 trusting a "hung" `make diagnose`.
+
+## Review pass over the four changes above — ten findings, all fixed (2026-09-09)
+
+An eight-angle review of `ba19fd7..HEAD` (line-by-line, removed behaviour, cross-file, reuse,
+simplification, efficiency, altitude, conventions), each candidate verified. Ten survived; the one
+that mattered most would have bricked the app on install.
+
+**The credential-scrub migration would have failed on every launch.** GRDB registers migrations
+with `foreignKeyChecks: .deferred` by default: foreign keys OFF while the migration runs, then
+`checkForeignKeys()` before commit. `CredentialScrub` deleted loopback samples and trusted the
+`ON DELETE CASCADE` to take their snapshots — but with FKs off there is no cascade, and the live DB
+held exactly one snapshot filed under a loopback-redirect sample with a clean URL of its own (the
+coordinator's refresh-without-recording path). Orphan → check fails → transaction rolls back →
+`AppDatabase.open` throws → `state = .failed` on this and every subsequent launch, with the
+migration never recorded. Neither test caught it: one migrated an empty DB, the other ran `apply`
+inside a normal write with FKs on. Fixed twice over — children deleted explicitly, and the two
+data migrations registered `.immediate` — and then proved by running the real migrator against a
+`.backup` of the live database in a throwaway test: three migrations applied, FK check clean,
+`credential_shapes` 0, 505 away gaps, 5.8 s on a debug build. The probe was deleted, not committed.
+
+**Away state, three fixes.** (1) After a wake with no input yet, the idle counter still read hours,
+so `poll` opened a second gap backdated *inside* the sleep gap just written. `beginAway` now clamps
+to the end of the last gap. (2) Typing the password at the lock screen ended an idle gap and opened
+a lock gap for the same absence; the lock screen is now checked before idle. (3) `willSleep` fires
+seconds *before* sleep with the real app still in front, and the "real app ends a lock/sleep gap"
+rule closed it after one second, leaving a fresh sample open through the night — the D2 bug, for
+sleep. A notification-started gap now waits out a 30 s grace window before `poll` may end it; a gap
+`poll` itself opened (lock screen in front) still ends the instant a real app is back.
+
+**`detour_tolerance_seconds: 0` split every sample into its own session.** The hole rule was
+`hole >= tolerance`, and contiguous slices have a hole of 0. Now a hole must be positive to count.
+
+**`job_runs.last_detail` could persist a live secret.** The ledger caught the ingest error before
+`sync_state.last_error` did and redacted with patterns only; the refresh token in a Google error
+body has no pattern. `track` takes the caller's known-secret values, as `last_error` always has,
+and the existing R3-2 test now asserts on the ledger row too.
+
+**Loopback-with-query was too broad.** 288 live loopback URLs had a query and none was a redirect;
+the rule dropped all of them, and because `dropCurrent` never closed the open sample, two hours on
+a local dev server were attributed to whatever came before. Now only a query naming a credential
+key (`code`, `token`, `state`, …) is dropped; the rest is stripped like any host; and dropping
+anything closes the open sample, so an excluded site is a hole in the timeline rather than
+somebody else's time. The same fix removes a pre-existing inflation for excluded hosts.
+
+**The scan disagreed with the redactor, and the purge missed history.** `forbiddenPatterns` was a
+hand-copied subset with a different `key=value` rule that matched the mask the scrub had just
+written — a violation the scrub could never clear. And the purge listed six columns by judgement,
+reasoning that `sessions.title` is rebuilt; only *today* is rebuilt. Both lists are gone: the purge
+runs over every TEXT column discovered from the schema, and "clean" is one definition — the
+redactor would change nothing. The redactor's `key=value` pattern no longer re-matches its own mask.
+
+**One failing day repeated a 100-day walk every five minutes.** `RollupBackfillJob` set its marker
+only after every day succeeded. Now a bad day is logged and skipped, the marker is written
+regardless, and the marker is not a version string to remember to bump: the migration that
+rewrites history deletes it in its own transaction (`AwayGapBackfill.invalidateRollups`).
+
+**Also fixed:** `LiveCaptureController.start()` twice stacked timers and observers; the away wiring
+and every ledger write swallowed errors with no log (the D2 failure mode made silent again —
+`endAway` now writes the gap *before* clearing state, so a failed insert is retried, not lost);
+`PowerObserver` had lost its injectable clock. Cleanup from the same review: `AwayApps` moved to
+TidyCore so the backfill no longer mirrors it (and the test that policed the mirror is gone);
+`IntervalSubtraction` in TidyCore now serves both `AwayClipper` and the context-switch metric,
+which had already drifted; the capture heartbeat writes one `job_runs` row instead of that plus a
+metadata key; the pipeline and ingest timers read their cadence from `JobRegistry`, which is what
+staleness is measured against; `LocalDay` holds the day arithmetic three places had copied;
+`AwayGapDetector` — written, tested, never called, the exact pattern this work exists to end — was
+deleted rather than left as the next audit's finding.
+
+**Not changed, on purpose:** `state` stays in the never-stored keys (a CSRF nonce is not identity);
+`track` keeps a string name with a grep-backed registry test rather than a typed job enum (a
+compile-time guarantee is nicer, but the grep catches the realistic mistake); the 25 unattended
+samples remain as documented.

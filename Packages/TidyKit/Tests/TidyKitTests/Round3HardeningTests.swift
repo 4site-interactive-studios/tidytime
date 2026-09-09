@@ -207,6 +207,10 @@ final class LastErrorRedactionTests: XCTestCase {
         XCTAssertFalse(lastError.isEmpty)
         XCTAssertFalse(lastError.contains(secretValue), "secret leaked into sync_state.last_error")
         XCTAssertTrue(lastError.contains(Redactor.mask))
+        // The job ledger catches the same error first (2026-09-09); it must be held to the same rule.
+        let detail = try db.jobRuns().first { $0.name == "CalendarSync" }?.lastDetail ?? ""
+        XCTAssertFalse(detail.isEmpty)
+        XCTAssertFalse(detail.contains(secretValue), "secret leaked into job_runs.last_detail")
     }
 }
 

@@ -155,8 +155,9 @@ credential in the address bar.
   can bypass it. It is an **allowlist** (fails closed), not a denylist of parameter names.
 - `Redactor` runs on every ingested free-text column: `SampleRecorder` (titles, page text),
   `PDMapper` (descriptions, notes), `SlackClient` (message text).
-- The `v3-credential-scrub` migration rewrote what was already stored, with the same scrubber
-  and redactor, so live and historical rows are held to one definition of clean.
+- The `v3-credential-scrub` migration rewrote what was already stored — every TEXT column in the
+  schema, discovered rather than listed — with the same scrubber and redactor, so live and
+  historical rows are held to one definition of clean: "the redactor would change nothing".
 - `CredentialScrubTests` drives credential-shaped input through the real capture and ingest
   paths and asserts the rows do not contain it; `CredentialScrub.violations` scans **every TEXT
   column in the schema** (discovered from `sqlite_master`, not listed) for forbidden shapes, and
@@ -171,8 +172,9 @@ credential in the address bar.
 - [ ] No `CGWindowList` window-name usage; no Screen Recording ask.
 - [ ] New cloud calls write to `ai_calls` and honor budget caps.
 - [ ] No secret in config/DB/logs/fixtures; Keychain only.
-- [ ] Any new column that stores text from outside the app is redacted at the insert (G10), and
-      `CredentialScrub.redactedColumns` lists it.
+- [ ] Any new column that stores text from outside the app is redacted at the insert (G10). A new
+      **URL** column also goes in `CredentialScrub.urlColumns`; every other TEXT column is already
+      covered — the purge and the scan discover them from the schema.
 - [ ] Any new scheduled job is in `JobRegistry` and its call site is wrapped in `db.track(...)`, so
       Doctor shows it and `JobLedgerTests` fails the day it stops being called.
 - [ ] Signing unchanged (stable identity); `.gitignore` still covers secrets/DB.

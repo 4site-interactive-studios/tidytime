@@ -250,10 +250,6 @@ final class AwayCaptureTests: XCTestCase {
         XCTAssertEqual(try db.writer.write { try AwayGapBackfill.apply($0) }, AwayGapBackfill.Report())
     }
 
-    func testAwayAppListsAgree() {
-        XCTAssertEqual(Set(AwayGapBackfill.awayBundleIds), AwayApps.bundleIds)
-    }
-
     func testRollupBackfillRerollsEveryDayOnce() throws {
         let db = try AppDatabase.inMemory()
         let tz = TimeZone(identifier: "UTC")!
@@ -266,12 +262,119 @@ final class AwayCaptureTests: XCTestCase {
                 """)
         }
         let clock = FixedClock(Date(timeIntervalSince1970: 200_000))
-        let job = RollupBackfillJob(db: db, assembler: RecapAssembler(db: db, clock: clock), timeZone: tz, clock: clock)
-        XCTAssertEqual(try job.runIfNeeded(), 2, "the earliest session's day through today")
+        let job = RollupBackfillJob(db: db, config: Config(), selfPersonId: nil, timeZone: tz, clock: clock)
+        XCTAssertNil(try db.metadata(MetadataKey.rollupsRecomputedFor), "a fresh DB has no marker: the walk runs")
+        XCTAssertEqual(try job.runIfNeeded().daysRolled, 2, "the earliest session's day through today")
         let rollups = try db.writer.read { try Row.fetchAll($0, sql: "SELECT day, observed_seconds FROM daily_rollups ORDER BY day") }
         XCTAssertEqual(rollups.map { ($0["day"] as String) + "=" + String($0["observed_seconds"] as Int) },
                        ["1970-01-02=3600", "1970-01-03=7200"])
-        XCTAssertEqual(try job.runIfNeeded(), 0, "second run is a no-op")
-        XCTAssertEqual(try db.metadata(MetadataKey.rollupsRecomputedFor), RollupBackfillJob.currentVersion)
+        XCTAssertEqual(try job.runIfNeeded(), RollupBackfillJob.Outcome(), "second run is a no-op")
+        XCTAssertEqual(try db.metadata(MetadataKey.rollupsRecomputedFor), RollupBackfillJob.marker)
+        // A migration that rewrites history clears the marker; the next pass re-rolls.
+        try db.writer.write { try AwayGapBackfill.invalidateRollups($0) }
+        XCTAssertEqual(try job.runIfNeeded().daysRolled, 2)
+    }
+
+    // MARK: Review findings (2026-09-09)
+
+    func testWakeWithoutInputDoesNotOpenASecondGapInsideTheFirst() throws {
+        let r = try rig()
+        _ = try r.coord.poll()                                              // 10000
+        try r.coord.awayBegan(cause: "sleep", at: Date(timeIntervalSince1970: 10_100))
+        r.clock.advance(by: 4000)                                           // 14000: wake
+        try r.coord.awayEnded(cause: "sleep", at: Date(timeIntervalSince1970: 14_000))
+        r.idle.seconds = 3950                                               // no input since 10050
+        XCTAssertFalse(try r.coord.poll(), "still away until input")
+        r.clock.advance(by: 20); r.idle.seconds = 0                          // 14020: typed
+        XCTAssertTrue(try r.coord.poll())
+        let g = try gaps(r.db)
+        XCTAssertEqual(g.map { [$0.startedAt, $0.endedAt] }, [[10_100, 14_000], [14_000, 14_020]],
+                       "the idle gap after wake starts where the sleep gap ended, never inside it")
+    }
+
+    func testInputAtTheLockScreenDoesNotEndAnIdleGap() throws {
+        let r = try rig()
+        _ = try r.coord.poll()
+        r.clock.advance(by: 700); r.idle.seconds = 650
+        _ = try r.coord.poll()                                              // idle gap open since 10050
+        r.clock.advance(by: 3000); r.idle.seconds = 0                        // typing the password…
+        r.reader.value = FrontmostContext(appBundleId: "com.apple.loginwindow", appName: "loginwindow")
+        XCTAssertFalse(try r.coord.poll())
+        XCTAssertTrue(r.coord.isAway)
+        XCTAssertEqual(try gaps(r.db).count, 0, "one absence, one gap, still open")
+        r.clock.advance(by: 5)
+        r.reader.value = FrontmostContext(appBundleId: "com.a", appName: "A", windowTitle: "t")
+        XCTAssertTrue(try r.coord.poll())
+        XCTAssertEqual(try gaps(r.db).map { [$0.startedAt, $0.endedAt] }, [[10_050, 13_705]])
+    }
+
+    func testPollDuringTheSleepGraceWindowDoesNotEndTheSleepGap() throws {
+        let r = try rig()
+        _ = try r.coord.poll()
+        try r.coord.awayBegan(cause: "sleep", at: Date(timeIntervalSince1970: 10_000))   // lid closed
+        r.clock.advance(by: 1)
+        XCTAssertFalse(try r.coord.poll(), "the real app is still frontmost for a second before sleep")
+        XCTAssertTrue(r.coord.isAway)
+        XCTAssertEqual(try samples(r.db).count, 1)
+        // Hours later the machine woke without any notification reaching us; a real app in front
+        // past the grace window IS the user back.
+        r.clock.advance(by: 30_000)
+        XCTAssertTrue(try r.coord.poll())
+        XCTAssertEqual(try gaps(r.db).map(\.durationSeconds), [30_001])
+    }
+
+    func testPollStartedLockGapEndsAsSoonAsARealAppIsInFront() throws {
+        let r = try rig()
+        _ = try r.coord.poll()
+        r.reader.value = FrontmostContext(appBundleId: "com.apple.loginwindow", appName: "loginwindow")
+        _ = try r.coord.poll()
+        r.clock.advance(by: 5)
+        r.reader.value = FrontmostContext(appBundleId: "com.a", appName: "A", windowTitle: "t")
+        XCTAssertTrue(try r.coord.poll(), "no grace window for a gap poll itself opened")
+        XCTAssertEqual(try gaps(r.db).map(\.durationSeconds), [5])
+    }
+
+    func testExcludedContextClosesTheOpenSampleInsteadOfStretchingIt() throws {
+        let db = try AppDatabase.inMemory()
+        let clock = FixedClock(Date(timeIntervalSince1970: 1000))
+        let reader = MutableFrontmostReader(FrontmostContext(appBundleId: "com.slack", appName: "Slack", windowTitle: "t"))
+        let coord = CaptureCoordinator(reader: reader, browser: nil,
+                                       recorder: SampleRecorder(db: db, clock: clock),
+                                       exclusions: CaptureExclusions(appBundleIds: ["com.bank"]), clock: clock)
+        _ = try coord.poll()
+        clock.advance(by: 60)
+        reader.value = FrontmostContext(appBundleId: "com.bank", appName: "Bank")
+        XCTAssertFalse(try coord.poll())
+        clock.advance(by: 7200)
+        reader.value = FrontmostContext(appBundleId: "com.slack", appName: "Slack", windowTitle: "t")
+        _ = try coord.poll()
+        let s = try db.samples(from: 0, to: 20_000)
+        XCTAssertEqual(s[0].endedAt, 1060, "two hours on an excluded app are a hole, not Slack time")
+        XCTAssertEqual(s[1].startedAt, 8260)
+    }
+
+    func testAContiguousRunStillMergesWithZeroDetourTolerance() {
+        let s = Sessionizer(detourTolerance: 0, minSessionSeconds: 60)
+        var slices: [SampleSlice] = []
+        for i in 0..<10 {
+            let start = Int64(i) * 30
+            slices.append(SampleSlice(id: Int64(i), start: start, end: start + 30, contextKey: "app:A", appBundleId: "a"))
+        }
+        let out = s.sessions(from: slices)
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out.first?.start, 0)
+        XCTAssertEqual(out.first?.end, 300)
+    }
+
+    func testGapWriteFailureKeepsTheAwayStateForRetry() throws {
+        // A closed DB makes the insert throw; the away state must survive so the next end retries.
+        let r = try rig()
+        _ = try r.coord.poll()
+        r.clock.advance(by: 700); r.idle.seconds = 650
+        _ = try r.coord.poll()
+        try r.db.writer.write { try $0.execute(sql: "DROP TABLE away_gaps") }
+        r.clock.advance(by: 100); r.idle.seconds = 0
+        XCTAssertThrowsError(try r.coord.poll())
+        XCTAssertTrue(r.coord.isAway, "the gap is not lost: state stays until a write succeeds")
     }
 }
