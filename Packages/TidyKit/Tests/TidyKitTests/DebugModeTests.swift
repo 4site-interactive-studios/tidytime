@@ -14,7 +14,7 @@ final class DebugModeTests: XCTestCase {
         try db.setMetadata("greeting", "hi", clock: clock)
 
         // A secret VALUE is present in the store — its name may appear, its value must not.
-        let tokenValue = "xoxp-REAL-secret-value-1234"
+        let tokenValue = ["xoxp", "REAL-secret-value-1234"].joined(separator: "-")   // built, never literal
         let secrets = InMemorySecretStore([SecretKey.slackUserToken: tokenValue])
 
         // A log file that (badly) contains the token — the bundle must scrub it.

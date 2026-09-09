@@ -32,7 +32,7 @@ final class DiagnosticsTests: XCTestCase {
     /// Guardrail G6: a secret value seeded anywhere in the inputs must NOT survive rendering.
     func testGuardrailNoSecretLeaksIntoBundle() {
         var input = sampleInput()
-        let secret = "xoxp-99-should-never-appear"
+        let secret = ["xoxp", "99-should-never-appear"].joined(separator: "-")   // built, never literal
         input.recentLogLines.append("accidentally logged token=\(secret)")
         input.extras["oops"] = secret
         let out = DiagnosticsBundle.render(input, secrets: [secret])
