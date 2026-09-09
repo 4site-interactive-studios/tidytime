@@ -2255,3 +2255,68 @@ saying which is which is more useful than removing the table.
 Worth noting how this was missed. Both are invisible from the code alone — the first needs you to
 query the live data for credential shapes, and the second only shows up when you rank sessions by
 duration and notice that the top row is the lock screen. Every prior review read code and tests.
+
+## G10: no credential reaches the database, ours or anyone else's (2026-09-09)
+
+Closes [open-items §D1](docs/open-items.md). The audit found 35 `activity_samples` URLs with
+`code=`, two of them Google OAuth authorization codes, 4 `page_snapshots` likewise, and a
+`pd_tasks` description carrying a real `GOCSPX-` client secret. All of it was stored verbatim by
+code that was correct on its own terms: `SampleRecorder` stored what it was given, `PDMapper`
+mirrored what the API returned. Nobody had asked "what shapes can a URL carry?"
+
+**Allowlist, not denylist.** The obvious fix — strip `code`, `access_token`, `id_token`, … from the
+query string — fails open the day a vendor spells it `authorization_code`. So `URLScrubber` drops
+the query string, fragment and userinfo entirely and keeps only keys in `capture.identity_query_keys`.
+That knob already existed: it is the allowlist sessionization uses to decide which query keys carry
+identity (`?doc=123`) rather than churn (`?msg=99`), and "carries identity" and "safe to keep on
+disk" turned out to be the same judgement. A short denylist sits underneath so that allowlisting
+`token` by mistake cannot reopen the hole. Nothing in attribution keyed on a query string — rung 1's
+URL match and the context-switch metric both already went through `ContextSignature.normalizedURL`,
+which discards it — so no live behaviour changed except the row on disk.
+
+**Loopback-with-query is dropped, not stripped.** TidyTime's own Google sign-in lands the browser on
+`http://127.0.0.1:<port>/?code=…`. Stripped, that stores a harmless, useless `http://127.0.0.1:port/`
+row for a page on screen for under a second. Dropping it is more honest. Loopback *without* a query
+is a local dev server (`web:localhost` carries 21 hours of sessions) and records normally.
+
+**Two call sites on purpose.** The scrub runs in `CaptureCoordinator.poll()` so the credential never
+reaches the in-memory context (and so a later page snapshot cannot file under it), and again in
+`SampleRecorder` as the last stop before the insert, so a second caller cannot bypass it. `Redactor`
+runs on every free-text column ingested from outside: window titles, page text, Productive
+descriptions and time-entry notes, Slack message text — the Slack one was not in the audit, and is
+the most likely place a person pastes a token. The page-snapshot dedup hash is now computed over the
+*redacted* text, so two loads of a page that differ only in a credential are one snapshot.
+
+**The purge is a migration.** `v3-credential-scrub` rewrites existing rows through the same scrubber
+and redactor, inside the migrator's transaction, before anything can read them. A startup job with an
+`app_metadata` flag would do the same work with one more way to fail and one more chance to be an
+orphan. It changes no schema, which is new for this table of migrations, and the data-model doc says
+so. It processes `page_snapshots` before `activity_samples` so a dropped snapshot is counted rather
+than vanishing through the cascade.
+
+**Enforcement that looks at data.** The old reviews could not have found this because they read
+code, and verbatim storage looks correct in code. So the guardrail test drives credential-shaped
+input through the real capture and ingest paths and asserts on the rows; and
+`CredentialScrub.violations` scans **every TEXT column in the schema**, discovered from
+`sqlite_master`, so a column added next month is covered the day it exists. `make diagnose` prints
+that scan against the live database as `credential_shapes`. Run against the live DB before the new
+build was installed, it reported **more than the audit did** — the audit grepped for `code=`; the
+scan knows more shapes:
+
+```
+activity_samples.url=64  activity_samples.window_title=3  page_snapshots.url=10
+page_snapshots.text=1    pd_tasks.description=4           slack_messages.text=3
+```
+
+Three Slack messages and three window titles carrying token shapes were never in the audit at all.
+After the migration runs on install, the same line must read 0 — that is the acceptance check, and
+it is a number from data, not a claim from code.
+
+**What changed for an existing test.** `testStoresRawURLNotNormalized` pinned the query string as
+part of "raw". Renamed to `testStoresRawPathNotNormalizedButNoQuery`: scheme, case, port and
+trailing slash still survive (the metric can be recomputed under a different policy); the query
+does not. The test now says why.
+
+**Rejected:** redacting `sessions.title` and `suggestions.note` in the purge. Both are derived from
+already-scrubbed rows and rebuilt; the schema-wide scan covers them anyway, so if a shape ever
+appears there the test says so rather than the purge silently papering over it.

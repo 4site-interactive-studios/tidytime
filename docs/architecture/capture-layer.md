@@ -190,6 +190,16 @@ on a short cadence (e.g. every few seconds or every N rows, whichever first) and
 `stop()`, sleep, and app termination — so bursty app-switching is a handful of INSERTs, not one
 per event. Never leave the open sample unflushed across a sleep transition.
 
+**What is stored of a URL (G10, 2026-09-09).** `activity_samples.url` and `page_snapshots.url`
+hold the URL **without query string, fragment, or userinfo**. `URLScrubber` (TidyCore) applies
+this in `CaptureCoordinator.poll()` before the URL is copied onto the context, and again in
+`SampleRecorder` before the insert. The only query keys that survive are those in
+`capture.identity_query_keys` — the same allowlist sessionization uses to decide which keys carry
+identity — minus a short set (`code`, `token`, `access_token`, …) that can never be allowlisted.
+A loopback host (`127.0.0.1`, `localhost`) with any query is an OAuth redirect, TidyTime's own
+included, and is not recorded at all. Window titles and page text are pattern-redacted by
+`Redactor` on the same path. See [../guardrails.md](../guardrails.md#g10--captured-and-mirrored-content-is-credential-scrubbed-before-the-insert).
+
 ## Chrome adapter → `page_snapshots`
 
 For the active tab, `ChromeAdapter` (behind `BrowserAdapter`) uses AppleScript over Apple

@@ -20,6 +20,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private let recorder: SampleRecorder
     private let policy: ContextSignature.Policy
     private let exclusions: CaptureExclusions
+    private let scrubber: URLScrubber
 
     private let lock = NSLock()
     private var lastSignature: String?
@@ -29,12 +30,14 @@ public final class CaptureCoordinator: @unchecked Sendable {
 
     public init(reader: FrontmostReading, browser: BrowserAdapter?, recorder: SampleRecorder,
                 policy: ContextSignature.Policy = .default,
-                exclusions: CaptureExclusions = CaptureExclusions()) {
+                exclusions: CaptureExclusions = CaptureExclusions(),
+                scrubber: URLScrubber = URLScrubber()) {
         self.reader = reader
         self.browser = browser
         self.recorder = recorder
         self.policy = policy
         self.exclusions = exclusions
+        self.scrubber = scrubber
     }
 
     /// Detection tick. Records a new sample iff the observed context changed. Returns true if it did.
@@ -48,7 +51,13 @@ public final class CaptureCoordinator: @unchecked Sendable {
             // Excluded BEFORE the URL and title are copied onto the context. Recording the row and
             // filtering later would already have put the thing on disk, which is the whole point.
             if tab.isPrivate || exclusions.excludes(url: tab.url) { return dropCurrent() }
-            ctx.url = tab.url
+            // Credential-bearing query strings and fragments never reach the context, so neither
+            // the sample nor a later page snapshot can carry them (G10). A loopback URL with a
+            // query is an OAuth redirect — TidyTime's own included — and is dropped outright.
+            switch scrubber.scrub(tab.url) {
+            case .drop: return dropCurrent()
+            case .store(let safe): ctx.url = safe
+            }
             if let title = tab.title, !title.isEmpty { ctx.windowTitle = title }
         }
         let signature = Self.signature(ctx, policy: policy)

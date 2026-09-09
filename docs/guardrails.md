@@ -1,6 +1,6 @@
 # Guardrails
 
-**Status:** normative · **Applies to:** every phase · **Last reviewed:** 2026-07-23
+**Status:** normative · **Applies to:** every phase · **Last reviewed:** 2026-09-09 (G10 added)
 
 These are the invariants the product's trust depends on. Each one is stated, justified, and
 paired with *how it is enforced in code* — because "we'll be careful" is not an enforcement
@@ -131,6 +131,37 @@ persist. All data stays in one SQLite file on one Mac, encrypted at rest by File
 seeds old rows and asserts they're gone after the window; nothing leaves the device except
 post-gate distilled cloud payloads.
 
+## G10 — Captured and mirrored content is credential-scrubbed before the insert
+
+**Rule.** No credential — ours or anyone else's — is written to the database. Browser URLs are
+stored **without query string, fragment, or userinfo** (only keys listed in
+`capture.identity_query_keys` survive, and a short denylist of credential keys can never be
+allowlisted); a loopback URL (`127.0.0.1`, `localhost`) carrying a query is never recorded at
+all, because that is an OAuth redirect — TidyTime's own included. Free text that arrives from
+outside (page text, window titles, Productive task descriptions and time-entry notes, Slack
+message text) is pattern-redacted on the way in. Retention deleting a row in 90 days is not a
+fix; the row must never exist.
+
+**Why it exists.** G6 governs *TidyTime's* tokens, and those were correctly Keychain-only. The
+2026-09-08 audit found the same harm by a route G6 does not reach: 35 `activity_samples` URLs
+with `code=` (two of them Google OAuth authorization codes), 4 `page_snapshots` likewise, and a
+`pd_tasks` description carrying a real Google client secret. `CaptureExclusions` could not help —
+it matches on host, and the hosts were ordinary work sites whose sign-in flows briefly put a
+credential in the address bar.
+
+**Enforcement.**
+- `URLScrubber` (TidyCore) runs in `CaptureCoordinator.poll()` before the URL is copied onto the
+  context, and again in `SampleRecorder` as the last stop before the insert, so no second caller
+  can bypass it. It is an **allowlist** (fails closed), not a denylist of parameter names.
+- `Redactor` runs on every ingested free-text column: `SampleRecorder` (titles, page text),
+  `PDMapper` (descriptions, notes), `SlackClient` (message text).
+- The `v3-credential-scrub` migration rewrote what was already stored, with the same scrubber
+  and redactor, so live and historical rows are held to one definition of clean.
+- `CredentialScrubTests` drives credential-shaped input through the real capture and ingest
+  paths and asserts the rows do not contain it; `CredentialScrub.violations` scans **every TEXT
+  column in the schema** (discovered from `sqlite_master`, not listed) for forbidden shapes, and
+  `make diagnose` reports the same scan against the live database.
+
 ---
 
 ### Fast checklist before merging anything
@@ -140,4 +171,6 @@ post-gate distilled cloud payloads.
 - [ ] No `CGWindowList` window-name usage; no Screen Recording ask.
 - [ ] New cloud calls write to `ai_calls` and honor budget caps.
 - [ ] No secret in config/DB/logs/fixtures; Keychain only.
+- [ ] Any new column that stores text from outside the app is redacted at the insert (G10), and
+      `CredentialScrub.redactedColumns` lists it.
 - [ ] Signing unchanged (stable identity); `.gitignore` still covers secrets/DB.

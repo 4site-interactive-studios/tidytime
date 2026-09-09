@@ -255,6 +255,10 @@ and no gaps across sleep/lock."* Each item is human-verifiable:
       no overlapping/duplicate sessions.
 - [ ] **Idle** beyond `capture.idle_threshold_seconds` ends the current session and opens an `away_gaps` row
       (`cause='idle'`); returning opens a fresh sample, not a resurrected one.
+- [x] **No credential is ever stored** (added 2026-09-09, G10) — a browser tab at
+      `http://127.0.0.1:<port>/?code=…` (TidyTime's own sign-in) produces **no** row; a tab at
+      `https://<work-site>/login?code=…` produces a row whose `url` has no query string; page text
+      containing a token shape is stored redacted. `make diagnose` reports `credential shapes: 0`.
 - [ ] **Retention** purges `activity_samples`/`page_snapshots` older than the window (seed old rows,
       run the job, assert gone; recent rows and their snapshots remain).
 - [ ] With the toggle **off** or Automation **denied**, capture **continues with URL + title only**,

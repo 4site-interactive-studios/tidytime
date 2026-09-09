@@ -242,11 +242,13 @@ public final class LiveCaptureController {
     public init(db: AppDatabase, config: Config) {
         let reader = FrontmostReader(browserBundleIds: [KnownApps.chrome])
         let browser: BrowserAdapter? = config.capture.browser == "chrome" ? ChromeAdapter() : nil
+        let scrubber = URLScrubber(config.capture)
         let recorder = SampleRecorder(db: db, policy: PageTextPolicy(maxBytes: config.capture.pageTextMaxBytes),
-                                      browserName: config.capture.browser)
+                                      browserName: config.capture.browser, scrubber: scrubber)
         self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder,
                                               policy: ContextSignature.Policy(config.capture),
-                                              exclusions: CaptureExclusions(config: config))
+                                              exclusions: CaptureExclusions(config: config),
+                                              scrubber: scrubber)
         self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
         self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
     }

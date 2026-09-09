@@ -72,6 +72,13 @@ let assembler = DiagnosticsAssembler(
 
 var input = assembler.assemble(logLines: logLines)
 input.extras["read_by"] = "tidytime-doctor CLI (database opened read-only)"
+// G10: the number that proves the credential scrub holds on the LIVE database, not just in tests.
+// Every TEXT column in the schema, scanned for token shapes. Anything but 0 is a bug report.
+if let violations = try? db.writer.read({ try CredentialScrub.violations($0) }) {
+    input.extras["credential_shapes"] = violations.isEmpty
+        ? "0 (every TEXT column scanned)"
+        : violations.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+}
 // This CLI is its own binary with its own provenance, and reporting THAT under "Environment" would
 // answer the wrong question — the reader wants to know which build of the APP is running. Say so
 // plainly, and let `last_run_build` / `last_run_bundle_path` (read from app_metadata) carry the

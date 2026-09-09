@@ -68,7 +68,8 @@ CREATE TABLE activity_samples (
     window_title  TEXT,
     is_browser    INTEGER NOT NULL DEFAULT 0,
     browser       TEXT,                       -- 'chrome' in v1
-    url           TEXT,                        -- active tab URL when is_browser
+    url           TEXT,                        -- active tab URL when is_browser — SCRUBBED (G10):
+                                               -- no query/fragment/userinfo except identity_query_keys
     source        TEXT    NOT NULL,            -- 'switch' | 'heartbeat'
     created_at    INTEGER NOT NULL
 );
@@ -79,10 +80,10 @@ CREATE TABLE page_snapshots (
     id           INTEGER PRIMARY KEY,
     sample_id    INTEGER NOT NULL REFERENCES activity_samples(id) ON DELETE CASCADE,
     captured_at  INTEGER NOT NULL,
-    url          TEXT    NOT NULL,
+    url          TEXT    NOT NULL,             -- scrubbed like activity_samples.url (G10)
     title        TEXT,
-    content_hash TEXT    NOT NULL,             -- sha256 of text; skip re-store on match
-    text         TEXT    NOT NULL,             -- document.body.innerText, truncated ~4 KB
+    content_hash TEXT    NOT NULL,             -- sha256 of the REDACTED text; skip re-store on match
+    text         TEXT    NOT NULL,             -- document.body.innerText, redacted, truncated ~4 KB
     text_bytes   INTEGER NOT NULL
 );
 CREATE INDEX idx_snapshots_sample ON page_snapshots(sample_id);
@@ -459,9 +460,12 @@ Authoritative list — mirrors
 | 7 | `v1-ai` | 6 | `ai_calls`, `nudges` |
 | 8 | `v2-context-switches` | post-v1 | adds 3 context-switch columns to `daily_rollups` |
 | 9 | `v2-page-snapshot-time-index` | post-v1 | index on `page_snapshots(captured_at)` |
+| 10 | `v3-credential-scrub` | post-v1 | **data only** — strips query/fragment from stored URLs, drops loopback-redirect rows, pattern-redacts free-text columns (G10) |
 
 Migrations 8–9 are **additive and safe on a populated database** (new columns are `NOT NULL` with
-defaults); the upgrade path is covered by `MigrationUpgradePathTests`.
+defaults); the upgrade path is covered by `MigrationUpgradePathTests`. Migration 10 changes no
+schema; it rewrites rows through `CredentialScrub`, the same code the live ingest paths use, and is
+covered by `CredentialScrubTests`.
 
 ```swift
 var migrator = DatabaseMigrator()

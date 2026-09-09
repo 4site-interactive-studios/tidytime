@@ -7,6 +7,8 @@ import GRDB
 ///   v1-capture  (Phase 1) — activity_samples, page_snapshots, sessions, away_gaps, sync_state
 ///   v1-productive (Phase 2), v1-meetings (Phase 3), v1-slack (Phase 4),
 ///   v1-understand (Phase 5), v1-ai (Phase 6)
+///   v2-context-switches, v2-page-snapshot-time-index
+///   v3-credential-scrub — data-only: rewrites rows, adds no schema
 public enum Migrations {
     public static func migrator() -> DatabaseMigrator {
         var m = DatabaseMigrator()
@@ -18,7 +20,17 @@ public enum Migrations {
         registerV1Understand(&m)
         registerV1AI(&m)
         registerV2ContextSwitches(&m)
+        registerV3CredentialScrub(&m)
         return m
+    }
+
+    /// One-shot rewrite of credential material stored before G10 (2026-09-08 audit): query strings
+    /// and fragments stripped from stored URLs, loopback-redirect rows dropped, free-text columns
+    /// pattern-redacted. Same scrubber and redactor as the live ingest paths — see `CredentialScrub`.
+    private static func registerV3CredentialScrub(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v3-credential-scrub") { db in
+            try CredentialScrub.apply(db)
+        }
     }
 
     private static func registerV1Core(_ m: inout DatabaseMigrator) {
