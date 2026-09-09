@@ -131,9 +131,14 @@ final class GuardrailEnforcementTests: XCTestCase {
     /// Matches a prefix followed by enough characters to be a real token — the bare prefixes appear
     /// legitimately in UI copy ("paste your xoxp-… token") and in docs, and failing on those would
     /// make this test noise that someone deletes rather than a guard someone trusts.
+    ///
+    /// Tests are scanned too (2026-09-09): GitHub push protection rejected a push because a *fake*
+    /// Slack token in a test fixture was shaped like a real one. A fixture that needs a token shape
+    /// builds it at runtime — `["xoxp", "123…"].joined(separator: "-")` — so no source file ever
+    /// contains one.
     func testNoCredentialShapedLiteralsInSources() throws {
-        let prefixes = ["xoxp-", "xoxb-", "sk-ant-api", "AIzaSy", "fw_"]
-        for (url, src) in try sources("Packages/TidyKit/Sources") {
+        let prefixes = ["xoxp-", "xoxb-", "sk-ant-api", "AIzaSy", "fw_", "GOCSPX-", "ghp_"]
+        for (url, src) in try sources("Packages/TidyKit/Sources") + sources("Packages/TidyKit/Tests") {
             for prefix in prefixes {
                 var search = src[...]
                 while let r = search.range(of: prefix) {
@@ -144,7 +149,8 @@ final class GuardrailEnforcementTests: XCTestCase {
                     search = search[r.upperBound...]
                 }
             }
-            for pem in ["-----BEGIN RSA", "-----BEGIN PRIVATE", "-----BEGIN OPENSSH"] {
+            // The markers are assembled here so this file does not trip its own scan.
+            for pem in ["RSA", "PRIVATE", "OPENSSH"].map({ "-----BEGIN " + $0 }) {
                 XCTAssertFalse(src.contains(pem), "G6: private key material in \(url.lastPathComponent)")
             }
         }
@@ -185,10 +191,29 @@ final class GuardrailEnforcementTests: XCTestCase {
             encoding: .utf8)
         let body = code(env)
         for job in ["SessionBuildJob(", "DayClassifier(", "EntityBootstrap(",
-                    "SuggestionEngine(", "ResolutionQuestionGenerator(", "RetentionJob("] {
+                    "SuggestionEngine(", "ResolutionQuestionGenerator(", "RetentionJob(",
+                    "RollupBackfillJob("] {
             XCTAssertTrue(body.contains(job),
                           "\(job) has no call site in runPipelineOnce. The table it writes will sit "
                         + "at zero rows and nothing will report it — this repo's signature failure.")
+        }
+    }
+
+    /// The away subsystem was the seventh orphan: `PowerObserver`, `IdleReader` and the idle
+    /// threshold all existed, were tested, and were wired to nothing — so the lock screen was
+    /// recorded as an application for 44 days (54% of all screen time) and `away_gaps` had 0 rows.
+    /// This pins the live wiring so removing it is a test failure, not a silent regression.
+    func testAwayDetectionIsWiredIntoLiveCapture() throws {
+        let src = try String(
+            contentsOf: TestSupport.repoRoot()
+                .appendingPathComponent("Packages/TidyKit/Sources/TidyCapture/LiveCapture.swift"),
+            encoding: .utf8)
+        let body = code(src)
+        for needle in ["PowerObserver(", "idle: IdleReader()", "idleThresholdSeconds: config.capture.idleThresholdSeconds",
+                       "power.start()", "coordinator.suspend()", "lastJobStart(\"CaptureHeartbeat\")"] {
+            XCTAssertTrue(body.contains(needle),
+                          "LiveCaptureController no longer contains '\(needle)'. Without it the lock "
+                        + "screen is recorded as work and away_gaps sits at zero rows.")
         }
     }
 }

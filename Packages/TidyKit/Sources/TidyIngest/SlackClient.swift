@@ -337,7 +337,8 @@ public struct SlackSync: Sendable {
                     conversationId: conv.id, conversationType: conv.type, conversationName: conv.name,
                     ts: dto.ts, postedAt: SlackTS.epoch(dto.ts), userId: dto.userId,
                     userName: dto.userId.flatMap { names[$0] }, isSelf: dto.userId == selfId,
-                    threadTs: dto.threadTs, text: dto.text, permalink: nil, fetchedAt: now)
+                    // Pasted tokens are what chat is for; pattern-redacted on the way in (G10).
+                    threadTs: dto.threadTs, text: Redactor.redact(dto.text), permalink: nil, fetchedAt: now)
             }
             try db.upsertSlackMessages(records)
             total += records.count

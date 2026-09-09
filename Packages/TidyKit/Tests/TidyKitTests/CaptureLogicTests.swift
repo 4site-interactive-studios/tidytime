@@ -97,31 +97,3 @@ final class SessionizerTests: XCTestCase {
     }
 }
 
-final class AwayGapDetectorTests: XCTestCase {
-    func testDetectsIdleGapAboveThreshold() {
-        let d = AwayGapDetector(idleThresholdSeconds: 600)
-        let slices = [
-            SampleSlice(id: 1, start: 0, end: 100, contextKey: "app:A", appBundleId: "a"),
-            SampleSlice(id: 2, start: 800, end: 900, contextKey: "app:A", appBundleId: "a"),
-        ]
-        let gaps = d.idleGaps(in: slices)
-        XCTAssertEqual(gaps.count, 1)
-        XCTAssertEqual(gaps[0].start, 100)
-        XCTAssertEqual(gaps[0].end, 800)
-        XCTAssertEqual(gaps[0].cause, "idle")
-    }
-    func testIgnoresShortGap() {
-        let d = AwayGapDetector(idleThresholdSeconds: 600)
-        let slices = [
-            SampleSlice(id: 1, start: 0, end: 100, contextKey: "app:A", appBundleId: "a"),
-            SampleSlice(id: 2, start: 300, end: 400, contextKey: "app:A", appBundleId: "a"),
-        ]
-        XCTAssertTrue(d.idleGaps(in: slices).isEmpty)
-    }
-    func testExplicitGap() {
-        let d = AwayGapDetector(idleThresholdSeconds: 600)
-        let g = d.explicitGap(cause: "lock", from: 1000, to: 1300)
-        XCTAssertEqual(g.durationSeconds, 300)
-        XCTAssertEqual(g.cause, "lock")
-    }
-}

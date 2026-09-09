@@ -1,7 +1,7 @@
 // Live macOS capture adapters. Compile-checked but NOT unit-tested — they require a running app,
 // granted Accessibility/Automation, and a real browser (see DECISIONS.md, Phase 0: headless
-// strategy). All logic they feed (Sessionizer, SampleRecorder, PageTextPolicy, AwayGapDetector) is
-// tested separately with fakes.
+// strategy). All logic they feed (Sessionizer, SampleRecorder, PageTextPolicy, CaptureCoordinator's
+// away state) is tested separately with fakes.
 import Foundation
 import TidyCore
 import TidyStore
@@ -173,33 +173,42 @@ public struct IdleReader: IdleReading {
     }
 }
 
-/// Observes sleep/wake and screen lock/unlock, emitting an away gap for each closed interval.
+/// Relays sleep/wake and screen lock/unlock to the coordinator's away state. It reports
+/// boundaries, not intervals: the coordinator already tracks idle, and only one place may decide
+/// where an absence starts and ends, or two overlapping gaps get written for one lunch break.
+///
+/// The lock/unlock names are undocumented by Apple. If they never fire, `poll` still sees the lock
+/// screen as frontmost and idle still crosses its threshold — this observer sharpens the boundary,
+/// it is not the only thing holding it.
 @MainActor
 public final class PowerObserver {
-    private let onGap: (AwayGapDraft) -> Void
+    private let onBegin: (String, Date) -> Void
+    private let onEnd: (String, Date) -> Void
     private let clock: () -> Date
-    private var intervalStart: Date?
     private var tokens: [NSObjectProtocol] = []
 
-    public init(clock: @escaping () -> Date = { Date() }, onGap: @escaping (AwayGapDraft) -> Void) {
-        self.onGap = onGap
+    public init(clock: @escaping () -> Date = { Date() },
+                onBegin: @escaping (String, Date) -> Void, onEnd: @escaping (String, Date) -> Void) {
         self.clock = clock
+        self.onBegin = onBegin
+        self.onEnd = onEnd
     }
 
     public func start() {
+        guard tokens.isEmpty else { return }
         let ws = NSWorkspace.shared.notificationCenter
         tokens.append(ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.begin() }
+            MainActor.assumeIsolated { guard let self else { return }; self.onBegin("sleep", self.clock()) }
         })
         tokens.append(ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.end(cause: "sleep") }
+            MainActor.assumeIsolated { guard let self else { return }; self.onEnd("sleep", self.clock()) }
         })
         let dc = DistributedNotificationCenter.default()
         tokens.append(dc.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.begin() }
+            MainActor.assumeIsolated { guard let self else { return }; self.onBegin("lock", self.clock()) }
         })
         tokens.append(dc.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.end(cause: "lock") }
+            MainActor.assumeIsolated { guard let self else { return }; self.onEnd("lock", self.clock()) }
         })
     }
 
@@ -209,17 +218,6 @@ public final class PowerObserver {
             DistributedNotificationCenter.default().removeObserver(t)
         }
         tokens.removeAll()
-    }
-
-    private func begin() { if intervalStart == nil { intervalStart = clock() } }
-
-    private func end(cause: String) {
-        guard let start = intervalStart else { return }
-        intervalStart = nil
-        let end = clock()
-        onGap(AwayGapDraft(
-            start: Int64(start.timeIntervalSince1970), end: Int64(end.timeIntervalSince1970),
-            durationSeconds: Int(end.timeIntervalSince(start)), cause: cause))
     }
 }
 
@@ -232,26 +230,59 @@ public final class PowerObserver {
 /// (see DECISIONS.md, tiered heartbeat). This wiring uses a main-run-loop Timer for clarity.
 @MainActor
 public final class LiveCaptureController {
+    private let db: AppDatabase
     private let coordinator: CaptureCoordinator
+    private let power: PowerObserver
+    private let logger: TidyLogger?
     private let detectionInterval: TimeInterval
     private let contentInterval: TimeInterval
     private var detectionTimer: Timer?
     private var contentTimer: Timer?
     private var activationToken: NSObjectProtocol?
 
-    public init(db: AppDatabase, config: Config) {
+    public init(db: AppDatabase, config: Config, logger: TidyLogger? = nil) {
+        self.db = db
+        self.logger = logger?.scoped("capture")
         let reader = FrontmostReader(browserBundleIds: [KnownApps.chrome])
         let browser: BrowserAdapter? = config.capture.browser == "chrome" ? ChromeAdapter() : nil
+        let scrubber = URLScrubber(config.capture)
         let recorder = SampleRecorder(db: db, policy: PageTextPolicy(maxBytes: config.capture.pageTextMaxBytes),
-                                      browserName: config.capture.browser)
-        self.coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder,
-                                              policy: ContextSignature.Policy(config.capture),
-                                              exclusions: CaptureExclusions(config: config))
+                                      browserName: config.capture.browser, scrubber: scrubber)
+        let coordinator = CaptureCoordinator(reader: reader, browser: browser, recorder: recorder,
+                                             policy: ContextSignature.Policy(config.capture),
+                                             exclusions: CaptureExclusions(config: config),
+                                             scrubber: scrubber,
+                                             idle: IdleReader(),
+                                             idleThresholdSeconds: config.capture.idleThresholdSeconds)
+        self.coordinator = coordinator
+        // Sleep/lock boundaries go through the coordinator so they merge with idle into ONE gap.
+        // A failure here is the D2 failure mode (away time silently unrecorded) — it is logged.
+        let log = self.logger
+        self.power = PowerObserver(
+            onBegin: { cause, at in
+                do { try coordinator.awayBegan(cause: cause, at: at) }
+                catch { log?.error("away begin not recorded", ["cause": cause, "error": "\(error)"]) }
+            },
+            onEnd: { cause, at in
+                do { try coordinator.awayEnded(cause: cause, at: at) }
+                catch { log?.error("away gap not recorded", ["cause": cause, "error": "\(error)"]) }
+            })
         self.detectionInterval = max(0.1, config.capture.detectionIntervalSeconds)
         self.contentInterval = max(1.0, config.capture.contentIntervalSeconds)
     }
 
     public func start() {
+        // Idempotent: a second start without a stop must not stack timers and observers.
+        guard detectionTimer == nil else { return }
+        // A sample left open by a crash, reboot or force-quit must end when the app was last
+        // known alive — not now, hours later. The CaptureHeartbeat ledger row (every content
+        // tick) is that timestamp.
+        do {
+            if let lastAlive = try db.lastJobStart("CaptureHeartbeat") { try db.closeOpenSample(before: lastAlive) }
+        } catch {
+            logger?.error("could not close the sample left open by the previous run", ["error": "\(error)"])
+        }
+        power.start()
         let nc = NSWorkspace.shared.notificationCenter
         activationToken = nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
                                          object: nil, queue: .main) { [weak self] _ in
@@ -261,7 +292,17 @@ public final class LiveCaptureController {
             MainActor.assumeIsolated { _ = try? self?.coordinator.poll() }
         }
         contentTimer = Timer.scheduledTimer(withTimeInterval: contentInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { try? self?.coordinator.captureContent() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                try? self.coordinator.captureContent()
+                let now = Int64(Date().timeIntervalSince1970)
+                do {
+                    try self.db.recordJobRun("CaptureHeartbeat", startedAt: now, finishedAt: now, outcome: .ok,
+                                             detail: self.coordinator.isAway ? "away" : nil)
+                } catch {
+                    self.logger?.error("capture heartbeat not recorded", ["error": "\(error)"])
+                }
+            }
         }
         try? coordinator.poll()
     }
@@ -271,6 +312,10 @@ public final class LiveCaptureController {
         contentTimer?.invalidate(); contentTimer = nil
         if let activationToken { NSWorkspace.shared.notificationCenter.removeObserver(activationToken) }
         activationToken = nil
+        power.stop()
+        // Close the open sample and bank any open gap; nothing dangles for the next start.
+        do { try coordinator.suspend() }
+        catch { logger?.error("capture suspend did not close the open sample", ["error": "\(error)"]) }
     }
 }
 #endif

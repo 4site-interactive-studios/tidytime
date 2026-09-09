@@ -2255,3 +2255,245 @@ saying which is which is more useful than removing the table.
 Worth noting how this was missed. Both are invisible from the code alone — the first needs you to
 query the live data for credential shapes, and the second only shows up when you rank sessions by
 duration and notice that the top row is the lock screen. Every prior review read code and tests.
+
+## G10: no credential reaches the database, ours or anyone else's (2026-09-09)
+
+Closes [open-items §D1](docs/open-items.md). The audit found 35 `activity_samples` URLs with
+`code=`, two of them Google OAuth authorization codes, 4 `page_snapshots` likewise, and a
+`pd_tasks` description carrying a real `GOCSPX-` client secret. All of it was stored verbatim by
+code that was correct on its own terms: `SampleRecorder` stored what it was given, `PDMapper`
+mirrored what the API returned. Nobody had asked "what shapes can a URL carry?"
+
+**Allowlist, not denylist.** The obvious fix — strip `code`, `access_token`, `id_token`, … from the
+query string — fails open the day a vendor spells it `authorization_code`. So `URLScrubber` drops
+the query string, fragment and userinfo entirely and keeps only keys in `capture.identity_query_keys`.
+That knob already existed: it is the allowlist sessionization uses to decide which query keys carry
+identity (`?doc=123`) rather than churn (`?msg=99`), and "carries identity" and "safe to keep on
+disk" turned out to be the same judgement. A short denylist sits underneath so that allowlisting
+`token` by mistake cannot reopen the hole. Nothing in attribution keyed on a query string — rung 1's
+URL match and the context-switch metric both already went through `ContextSignature.normalizedURL`,
+which discards it — so no live behaviour changed except the row on disk.
+
+**Loopback-with-query is dropped, not stripped.** TidyTime's own Google sign-in lands the browser on
+`http://127.0.0.1:<port>/?code=…`. Stripped, that stores a harmless, useless `http://127.0.0.1:port/`
+row for a page on screen for under a second. Dropping it is more honest. Loopback *without* a query
+is a local dev server (`web:localhost` carries 21 hours of sessions) and records normally.
+
+**Two call sites on purpose.** The scrub runs in `CaptureCoordinator.poll()` so the credential never
+reaches the in-memory context (and so a later page snapshot cannot file under it), and again in
+`SampleRecorder` as the last stop before the insert, so a second caller cannot bypass it. `Redactor`
+runs on every free-text column ingested from outside: window titles, page text, Productive
+descriptions and time-entry notes, Slack message text — the Slack one was not in the audit, and is
+the most likely place a person pastes a token. The page-snapshot dedup hash is now computed over the
+*redacted* text, so two loads of a page that differ only in a credential are one snapshot.
+
+**The purge is a migration.** `v3-credential-scrub` rewrites existing rows through the same scrubber
+and redactor, inside the migrator's transaction, before anything can read them. A startup job with an
+`app_metadata` flag would do the same work with one more way to fail and one more chance to be an
+orphan. It changes no schema, which is new for this table of migrations, and the data-model doc says
+so. It processes `page_snapshots` before `activity_samples` so a dropped snapshot is counted rather
+than vanishing through the cascade.
+
+**Enforcement that looks at data.** The old reviews could not have found this because they read
+code, and verbatim storage looks correct in code. So the guardrail test drives credential-shaped
+input through the real capture and ingest paths and asserts on the rows; and
+`CredentialScrub.violations` scans **every TEXT column in the schema**, discovered from
+`sqlite_master`, so a column added next month is covered the day it exists. `make diagnose` prints
+that scan against the live database as `credential_shapes`. Run against the live DB before the new
+build was installed, it reported **more than the audit did** — the audit grepped for `code=`; the
+scan knows more shapes:
+
+```
+activity_samples.url=64  activity_samples.window_title=3  page_snapshots.url=10
+page_snapshots.text=1    pd_tasks.description=4           slack_messages.text=3
+```
+
+Three Slack messages and three window titles carrying token shapes were never in the audit at all.
+After the migration runs on install, the same line must read 0 — that is the acceptance check, and
+it is a number from data, not a claim from code.
+
+**What changed for an existing test.** `testStoresRawURLNotNormalized` pinned the query string as
+part of "raw". Renamed to `testStoresRawPathNotNormalizedButNoQuery`: scheme, case, port and
+trailing slash still survive (the metric can be recomputed under a different policy); the query
+does not. The test now says why.
+
+**Rejected:** redacting `sessions.title` and `suggestions.note` in the purge. Both are derived from
+already-scrubbed rows and rebuilt; the schema-wide scan covers them anyway, so if a shape ever
+appears there the test says so rather than the purge silently papering over it.
+
+## D2: the lock screen was 54% of "screen time" — wiring the away subsystem (2026-09-09)
+
+Closes [open-items §D2](docs/open-items.md). `PowerObserver`, `IdleReader` and `AwayGapDetector`
+were the seventh orphan: written, tested, never called. The frontmost reader faithfully reported
+`com.apple.loginwindow` as an application, `SampleRecorder` faithfully stored it, and the
+sessionizer faithfully built a 13.8-hour session out of it. 594 samples, 222 sessions, 409 hours.
+
+**One away state, three signals.** The obvious wiring — `PowerObserver.onGap → recordAwayGap` — would
+have written a second, overlapping gap for every lunch break the idle detector had already noticed.
+So the coordinator owns a single `away` value and everything reports *boundaries* into it: the idle
+reader crossing the threshold (backdated to `now − idle`, because the block ended when input stopped,
+not when we looked), the lock screen or screen saver being frontmost (never a sample, whatever the
+notifications do), and sleep/wake and lock/unlock relayed by `PowerObserver`. Overlaps collapse:
+earliest start wins, a specific cause replaces `idle`, and an end notification closes only a gap of
+its own cause — a wake with the screen still locked is not the user coming back, and `poll` will see
+the lock screen. The lock/unlock notification names are undocumented by Apple; the design does not
+depend on them firing.
+
+**Entering away closes the sample at the boundary.** The old contract closed an open sample only
+when the *next* sample opened, which is what stretched a 9pm sample to 8am. `closeOpenSample` is now
+called at the away boundary, and clamps to the sample's own start so a title change with no input
+cannot leave a sample dangling. Pause and quit call `suspend()` for the same reason, and a 20-second
+`capture_last_alive` heartbeat lets the next launch close a sample a crash left open at the last
+known-alive time rather than at launch.
+
+**Sessions cannot cover away time.** `SessionBuildJob` subtracts `away_gaps` from every slice, and
+`Sessionizer` now treats a hole ≥ the detour tolerance between consecutive slices as a hard
+boundary. It had to: samples are contiguous by construction, so the sessionizer had never seen a
+hole, and merged the two halves of a lunch break straight back into one session spanning it. The
+same rule stops time on an *excluded* site from being absorbed into its neighbours, which it had
+been.
+
+**History is converted, not deleted.** `v3-loginwindow-away-gaps` turns each lock-screen sample into
+an `away_gaps` row and deletes the sessions built from them; neighbours are untouched because the
+lock screen was its own sample. `RollupBackfillJob` then re-rolls every day once, keyed on
+`rollups_recomputed_for`, because `writeRollups` only ever re-rolls today and yesterday and a frozen
+past day would otherwise keep reporting lock-screen hours as observed forever. Its call site is
+pinned by the guardrail test, as is the live wiring in `LiveCaptureController`.
+
+**What cannot be recovered.** 25 samples totalling 147 hours are a real application running
+unattended with no lock screen in them — display sleep, a lid closed on an unlocked machine. In the
+data they are indistinguishable from a person sitting in one app for nine hours. They stay, the
+migration report counts them, and retention removes them in 90 days; the live idle detector means
+no new ones. Days containing one (2026-08-29 reads 23.8 h) are still wrong and are flagged as such
+in MVP-HANDOFF §2.
+
+**Measured on a scratch backup of the live DB** (`.backup`, never the live file), applying the
+conversion SQL:
+
+| | Before | After |
+|---|---|---|
+| Total screen-session hours | 751.4 | 342.4 |
+| `away_gaps` rows / hours | 0 / 0 | 504 / 630.8 |
+| Largest single "activity" | lock screen, 402.8 h | Claude desktop, 156.7 h |
+| 2026-09-08 observed h / attributed | 15.0 / 4% | 2.8 / 24% |
+| 2026-09-04 | 23.4 / 12% | 6.8 / 42% |
+| 2026-09-02 | 24.3 / 23% | 9.8 / 53% |
+| 2026-09-01 | 19.2 / 39% | 7.7 / 86% |
+
+The product's headline rate was understated by 3–5× on every recent day. The 08-28 figure the
+handoff quoted (70.4%) was computed live from that day's recap and happens to be close to the
+corrected 89%; the persisted rollups for the same days were not.
+
+**Rejected:** clipping over-long samples at the 2-hour ceiling in the migration. It would have
+manufactured a boundary the data does not contain and made the numbers look better than what is
+known. The context-switch analyzer already ignores such spans; observed time should say what was
+recorded and the doc should say what is doubtful.
+
+## The orphan detector: a job ledger every job writes to (2026-09-09)
+
+Seven components in this repo were found written, tested and never called — six pipeline jobs in
+one week, then the whole away subsystem, which cost 44 days of data. The pinned-call-site guardrail
+test stops a *known* call site from disappearing; it cannot see a *new* orphan, and the MVP handoff
+named "a Doctor panel listing pipeline jobs with last-run times" as the fix. This is that panel.
+
+**The job records itself.** `job_runs` holds one row per job: last start, finish, outcome, detail,
+counts. `AppDatabase.track(name) { … }` wraps each call site in `runPipelineOnce`, each ingest
+engine in `IngestCoordinator.runAll`, and the capture content tick writes a `CaptureHeartbeat` row
+every 20 s. `JobRegistry` lists every job the product expects with its cadence, and `JobHealth`
+reads the registry against the ledger: **NEVER RAN**, `failed`, `stale` (last ok run older than
+3× cadence — the timer stopped, the live form of never-called), `skipped`, `ok`. Doctor's *Jobs*
+section and `make diagnose` render it.
+
+**`skipped` is an outcome.** An ingest source with no credential records that it was considered and
+why. Without that, four sources would read NEVER RAN on every fresh install and the signal would be
+noise by day two — which is how guardrails get deleted.
+
+**Two tests close the loop from both sides.** `JobLedgerTests` runs one real pipeline pass on an
+in-memory environment and fails on any registered pipeline job without a row: register a job
+without wiring it and the suite is red. The structural half greps the three wiring files for
+`track("…")` / `recordJobRun("…")` names and fails on one that is not registered: wire a job without
+registering it and Doctor would never list it, so that is red too. Adding a job now means doing both,
+and doing only one is caught.
+
+**What it still cannot see:** a component that is neither registered nor tracked — a new struct
+with a `run()` and no caller. The registry is the list of things the product *promises* to run;
+the discipline is that a new scheduled job goes on the list the day it is written. That is a rule
+in the guardrails checklist, not a mechanism, and it is stated as such.
+
+**Found while verifying:** `make diagnose` blocked for ten minutes after the rebuild. The sampled
+stack was `KeychainSecretStore.get → SecItemCopyMatching` — the CLI reads every secret to build its
+redaction list, and a freshly built binary has a new signature, so macOS shows a Keychain prompt
+that a headless invocation never sees. Pre-existing (the CLI always did this); worth knowing before
+trusting a "hung" `make diagnose`.
+
+## Review pass over the four changes above — ten findings, all fixed (2026-09-09)
+
+An eight-angle review of `ba19fd7..HEAD` (line-by-line, removed behaviour, cross-file, reuse,
+simplification, efficiency, altitude, conventions), each candidate verified. Ten survived; the one
+that mattered most would have bricked the app on install.
+
+**The credential-scrub migration would have failed on every launch.** GRDB registers migrations
+with `foreignKeyChecks: .deferred` by default: foreign keys OFF while the migration runs, then
+`checkForeignKeys()` before commit. `CredentialScrub` deleted loopback samples and trusted the
+`ON DELETE CASCADE` to take their snapshots — but with FKs off there is no cascade, and the live DB
+held exactly one snapshot filed under a loopback-redirect sample with a clean URL of its own (the
+coordinator's refresh-without-recording path). Orphan → check fails → transaction rolls back →
+`AppDatabase.open` throws → `state = .failed` on this and every subsequent launch, with the
+migration never recorded. Neither test caught it: one migrated an empty DB, the other ran `apply`
+inside a normal write with FKs on. Fixed twice over — children deleted explicitly, and the two
+data migrations registered `.immediate` — and then proved by running the real migrator against a
+`.backup` of the live database in a throwaway test: three migrations applied, FK check clean,
+`credential_shapes` 0, 505 away gaps, 5.8 s on a debug build. The probe was deleted, not committed.
+
+**Away state, three fixes.** (1) After a wake with no input yet, the idle counter still read hours,
+so `poll` opened a second gap backdated *inside* the sleep gap just written. `beginAway` now clamps
+to the end of the last gap. (2) Typing the password at the lock screen ended an idle gap and opened
+a lock gap for the same absence; the lock screen is now checked before idle. (3) `willSleep` fires
+seconds *before* sleep with the real app still in front, and the "real app ends a lock/sleep gap"
+rule closed it after one second, leaving a fresh sample open through the night — the D2 bug, for
+sleep. A notification-started gap now waits out a 30 s grace window before `poll` may end it; a gap
+`poll` itself opened (lock screen in front) still ends the instant a real app is back.
+
+**`detour_tolerance_seconds: 0` split every sample into its own session.** The hole rule was
+`hole >= tolerance`, and contiguous slices have a hole of 0. Now a hole must be positive to count.
+
+**`job_runs.last_detail` could persist a live secret.** The ledger caught the ingest error before
+`sync_state.last_error` did and redacted with patterns only; the refresh token in a Google error
+body has no pattern. `track` takes the caller's known-secret values, as `last_error` always has,
+and the existing R3-2 test now asserts on the ledger row too.
+
+**Loopback-with-query was too broad.** 288 live loopback URLs had a query and none was a redirect;
+the rule dropped all of them, and because `dropCurrent` never closed the open sample, two hours on
+a local dev server were attributed to whatever came before. Now only a query naming a credential
+key (`code`, `token`, `state`, …) is dropped; the rest is stripped like any host; and dropping
+anything closes the open sample, so an excluded site is a hole in the timeline rather than
+somebody else's time. The same fix removes a pre-existing inflation for excluded hosts.
+
+**The scan disagreed with the redactor, and the purge missed history.** `forbiddenPatterns` was a
+hand-copied subset with a different `key=value` rule that matched the mask the scrub had just
+written — a violation the scrub could never clear. And the purge listed six columns by judgement,
+reasoning that `sessions.title` is rebuilt; only *today* is rebuilt. Both lists are gone: the purge
+runs over every TEXT column discovered from the schema, and "clean" is one definition — the
+redactor would change nothing. The redactor's `key=value` pattern no longer re-matches its own mask.
+
+**One failing day repeated a 100-day walk every five minutes.** `RollupBackfillJob` set its marker
+only after every day succeeded. Now a bad day is logged and skipped, the marker is written
+regardless, and the marker is not a version string to remember to bump: the migration that
+rewrites history deletes it in its own transaction (`AwayGapBackfill.invalidateRollups`).
+
+**Also fixed:** `LiveCaptureController.start()` twice stacked timers and observers; the away wiring
+and every ledger write swallowed errors with no log (the D2 failure mode made silent again —
+`endAway` now writes the gap *before* clearing state, so a failed insert is retried, not lost);
+`PowerObserver` had lost its injectable clock. Cleanup from the same review: `AwayApps` moved to
+TidyCore so the backfill no longer mirrors it (and the test that policed the mirror is gone);
+`IntervalSubtraction` in TidyCore now serves both `AwayClipper` and the context-switch metric,
+which had already drifted; the capture heartbeat writes one `job_runs` row instead of that plus a
+metadata key; the pipeline and ingest timers read their cadence from `JobRegistry`, which is what
+staleness is measured against; `LocalDay` holds the day arithmetic three places had copied;
+`AwayGapDetector` — written, tested, never called, the exact pattern this work exists to end — was
+deleted rather than left as the next audit's finding.
+
+**Not changed, on purpose:** `state` stays in the never-stored keys (a CSRF nonce is not identity);
+`track` keeps a string name with a grep-backed registry test rather than a typed job enum (a
+compile-time guarantee is nicer, but the grep catches the realistic mistake); the 25 unattended
+samples remain as documented.

@@ -120,7 +120,10 @@ public enum PDMapper {
     static func task(_ r: JSONAPIResource<TaskAttrs>, _ syncedAt: Int64) -> PDTask {
         PDTask(id: r.id, projectId: r.relationshipId("project") ?? "",
                taskListId: r.relationshipId("task_list"), title: r.attributes.title,
-               description: r.attributes.description, taskNumber: r.attributes.taskNumber,
+               // Mirrored verbatim until 2026-09-08, when a live description was found carrying a
+               // Google client secret. Free text from any external source is redacted on the way
+               // in (G10); the mirror is otherwise as-is.
+               description: Redactor.redact(r.attributes.description), taskNumber: r.attributes.taskNumber,
                status: r.attributes.status, closed: r.attributes.closedAt != nil,
                assigneeId: r.relationshipId("assignee"), dueDate: r.attributes.dueDate, syncedAt: syncedAt)
     }
@@ -129,7 +132,7 @@ public enum PDMapper {
                     taskId: r.relationshipId("task"), projectId: r.relationshipId("project"),
                     serviceId: r.relationshipId("service"), date: r.attributes.date,
                     timeMinutes: r.attributes.time, billableMinutes: r.attributes.billableTime,
-                    note: r.attributes.note, syncedAt: syncedAt)
+                    note: Redactor.redact(r.attributes.note), syncedAt: syncedAt)
     }
     static func person(_ r: JSONAPIResource<PersonAttrs>, _ syncedAt: Int64) -> PDPerson {
         let name = r.attributes.name

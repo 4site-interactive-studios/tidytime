@@ -27,6 +27,10 @@ public enum MetadataKey {
     /// separate from ``lastRunBuild``: two identical builds in different locations are the case
     /// that fooled a live debugging session, and only the path tells them apart.
     public static let lastRunBundlePath = "last_run_bundle_path"
+    /// Present when every day's rollup reflects the current sample/session history. A data
+    /// migration that rewrites history deletes it (`AwayGapBackfill.invalidateRollups`);
+    /// `RollupBackfillJob` re-rolls every day once while it is absent, then writes it back.
+    public static let rollupsRecomputedFor = "rollups_recomputed_for"
 }
 
 extension AppDatabase {

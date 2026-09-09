@@ -52,7 +52,10 @@ public struct ContextSwitchAnalyzer: Sendable {
     public let maxPlausibleFocusSeconds: Int
     public let policy: ContextSignature.Policy
 
-    public init(briefThresholdSeconds: Int = 120, maxPlausibleFocusSeconds: Int = 7200,
+    /// The 2 h ceiling, named so the away-gap backfill can count "unattended" samples by the same rule.
+    public static let defaultMaxPlausibleFocusSeconds = 7200
+
+    public init(briefThresholdSeconds: Int = 120, maxPlausibleFocusSeconds: Int = defaultMaxPlausibleFocusSeconds,
                 policy: ContextSignature.Policy = .default) {
         self.briefThresholdSeconds = briefThresholdSeconds
         self.maxPlausibleFocusSeconds = maxPlausibleFocusSeconds
@@ -122,24 +125,15 @@ public struct ContextSwitchAnalyzer: Sendable {
     /// the metric (the span ceiling is only a fallback when no gaps were recorded).
     func subtracting(_ gaps: [AwayGap], from samples: [ActivitySample], now: Int64) -> [ActivitySample] {
         guard !gaps.isEmpty else { return samples }
-        let intervals = gaps.map { ($0.startedAt, $0.endedAt) }.sorted { $0.0 < $1.0 }
+        let intervals = gaps.map { (start: $0.startedAt, end: $0.endedAt) }
         var out: [ActivitySample] = []
         for s in samples {
-            var pieces: [(Int64, Int64)] = [(s.startedAt, max(s.startedAt, s.endedAt ?? now))]
-            for (gs, ge) in intervals {
-                var next: [(Int64, Int64)] = []
-                for (ps, pe) in pieces {
-                    if ge <= ps || gs >= pe { next.append((ps, pe)); continue }  // no overlap
-                    if gs > ps { next.append((ps, min(gs, pe))) }                 // head survives
-                    if ge < pe { next.append((max(ge, ps), pe)) }                 // tail survives
-                }
-                pieces = next
-            }
-            for (ps, pe) in pieces where pe > ps {
-                var piece = s
-                piece.startedAt = ps
-                piece.endedAt = pe
-                out.append(piece)
+            let whole = (start: s.startedAt, end: max(s.startedAt, s.endedAt ?? now))
+            for piece in IntervalSubtraction.subtract(intervals, from: whole) {
+                var p = s
+                p.startedAt = piece.start
+                p.endedAt = piece.end
+                out.append(p)
             }
         }
         return out.sorted { $0.startedAt < $1.startedAt }

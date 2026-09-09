@@ -36,8 +36,19 @@ public struct DiagnosticsAssembler: Sendable {
             permissions: permissions.statuses(),
             databaseSummary: (try? db.tableRowCounts()) ?? [:],
             recentLogLines: LogReader.tail(logURL, lines: logLines),
-            extras: Self.extras(db: db, logURL: logURL)
+            extras: Self.extras(db: db, logURL: logURL),
+            jobs: Self.jobs(db: db, now: Int64(clock.now.timeIntervalSince1970))
         )
+    }
+
+    /// The registry read against `job_runs`, one line per job. Keys are prefixed with the group so
+    /// the sorted rendering keeps capture, ingest and pipeline together.
+    public static func jobs(db: AppDatabase, now: Int64) -> [String: String] {
+        var out: [String: String] = [:]
+        for status in db.jobStatuses(now: now) {
+            out["\(status.job.group).\(status.job.name)"] = status.summary
+        }
+        return out
     }
 
     /// The `Extras` block. `last_run_*` are read back out of `app_metadata` rather than taken from

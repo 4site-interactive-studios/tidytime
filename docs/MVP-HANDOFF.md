@@ -35,16 +35,31 @@ capture → sessionize → classify → suggest → recap → decide → learn
 
 Measured on the author's live install, 2026-08-28, after ~5 weeks of continuous capture.
 
-> **Correction (2026-09-08, from the phase audit).** The observed/attributed figures below are
-> computed against a denominator that is **more than half macOS lock screen** — 400 of 740 recorded
-> screen-session hours carry `app:com.apple.loginwindow`, because the idle/away/power subsystem is
-> orphaned and `away_gaps` has 0 rows. Treat every rate in this table as provisional until
-> [open-items.md §D2](open-items.md#d2--54-of-all-recorded-screen-time-is-the-macos-lock-screen) is
-> fixed and the rollups are recomputed. The absolute counts (samples, signals, suggestions) are
-> unaffected; the *percentages* are not.
+> **Re-baselined 2026-09-09.** The 2026-09-08 audit found that every rate in this table was computed
+> against a denominator that was more than half macOS lock screen — the idle/away/power subsystem was
+> never wired, so an overnight lock was one contiguous session ([open-items §D2](open-items.md#d2--54-of-all-recorded-screen-time-is-the-macos-lock-screen)).
+> That is fixed: the lock screen is never recorded, idle/sleep/lock write `away_gaps`, sessions are
+> clipped at them, and history was converted. The table below keeps the 08-28 measurements and adds
+> what the same days read after conversion (measured on a scratch backup of the live DB). The 08-28
+> attribution figure was computed live that afternoon and was close; the *persisted* rollups for
+> every recent day were understated 3–5×.
 >
-> Also from that audit, and more urgent than anything in §5: the database is storing third-party
-> credentials captured from URLs and mirrored task descriptions —
+> | Day | Observed h, before → after | Attributed, before → after |
+> |---|---|---|
+> | 2026-09-08 | 15.0 → 2.8 | 4% → 24% |
+> | 2026-09-04 | 23.4 → 6.8 | 12% → 42% |
+> | 2026-09-03 | 18.1 → 4.5 | 13% → 53% |
+> | 2026-09-02 | 24.3 → 9.8 | 23% → 53% |
+> | 2026-09-01 | 19.2 → 7.7 | 39% → 86% |
+> | 2026-08-28 | — → 7.8 | 70.4% (live) → 89% |
+>
+> Still doubtful: 25 samples (147 h) of a real app running unattended with no lock screen in them
+> predate idle detection and cannot be separated from work. A day containing one (2026-08-29 reads
+> 23.8 h) is still wrong; they age out with retention.
+>
+> Also from that audit, and fixed the same day: the database was storing third-party credentials
+> captured from URLs and mirrored task descriptions — now guardrail
+> [G10](guardrails.md#g10--captured-and-mirrored-content-is-credential-scrubbed-before-the-insert),
 > [§D1](open-items.md#d1--the-database-stores-third-party-credentials-captured-from-urls-and-mirrored-content).
 
 | | Measured |
@@ -72,13 +87,17 @@ never invoked cannot fail. Six were found and wired this week; these remain.
 
 | Subsystem | Consequence today |
 |---|---|
-| `PowerObserver` (away/idle) | `away_gaps` is 0 rows; `AwayPrompt` never appears; the context-switch metric loses its idle-clipping input |
+| ~~`PowerObserver` (away/idle)~~ | **Wired 2026-09-09.** `away_gaps` now fills; `AwayPrompt` (the surface that asks what an absence was) is still unwired — see §D3 phase 3 |
 | `NudgeEngine` / `NudgePresenter` | `nudges` is 0 rows; no nudge is ever delivered |
 | Answer-half of the learning loop (`AwayResolving`, `NudgeOutcomeRecording`) | those write paths never run |
 | All of Phase 6 — `AIRouter`, `NoteDrafter`, the three providers, rungs 3–5 | `ai_calls` is 0 rows. **This is a Phase 5 acceptance criterion, not a defect.** |
 
-`GuardrailEnforcementTests.testPipelineJobsHaveProductionCallSites` now pins the six jobs that *are*
-wired, so deleting a call site is a test failure. It does not yet detect a *new* orphan. A Doctor
+`GuardrailEnforcementTests.testPipelineJobsHaveProductionCallSites` pins the seven jobs that *are*
+wired (plus the live away wiring), so deleting a call site is a test failure. **Since 2026-09-09 a
+new orphan is detected too:** every job writes a `job_runs` row when it runs, `JobRegistry` lists
+every job the product expects, and Doctor's *Jobs* section (and `make diagnose`) shows any
+registered job with no row as **NEVER RAN**. `JobLedgerTests` runs one pipeline pass and fails on
+a registered pipeline job that left no row. A Doctor
 panel listing every pipeline job with its last-run time would — see §7.
 
 ## 4. Getting it running
@@ -166,9 +185,10 @@ The three things most likely to be wrong in a way the tests cannot see:
 
 Not blockers, but do not rediscover them:
 
-- **No orphan detection.** Nothing reports "job defined, never invoked." Five separate bugs this
-  week were instances of it. A Doctor panel listing pipeline jobs with last-run times would surface
-  the next one in seconds instead of weeks.
+- ~~**No orphan detection.**~~ **Fixed 2026-09-09.** Doctor's *Jobs* section lists every registered
+  job with its last run, outcome and cadence; a job nobody calls reads NEVER RAN in red, a job whose
+  timer stopped reads stale. Seven orphans were found by audit before this existed. The remaining
+  gap: a *new* component that is not registered as a job is still invisible — register it.
 - **Confidence is calibrated by argument, not by data.** The numbers now discriminate (five distinct
   values across ten cards, where nine of fourteen used to read 0.82), but no one has ever checked
   whether an 0.80 card is right more often than an 0.76 one. Once `decisions` has rows, that becomes

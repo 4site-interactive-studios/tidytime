@@ -23,11 +23,20 @@ public struct Sessionizer: Sendable {
             i += 1
             while i < sorted.count {
                 let seg = sorted[i]
+                // Samples are contiguous by construction, so a hole between two slices is time that
+                // was deliberately removed: an away gap (idle, lock, sleep) or an excluded site. A
+                // hole shorter than the detour tolerance is absorbed like a detour; a longer one is
+                // a hard boundary, or the two halves of a lunch break would re-merge into one
+                // session spanning the break (2026-09-09, D2). Contiguous slices (hole 0) always
+                // merge — a tolerance of 0 means "absorb no detours", not "never merge".
+                let hole = Int(seg.start - run.end)
+                if hole > 0, hole >= detourTolerance { break }
                 if seg.groupingKey == run.groupingKey {
                     run.extend(with: seg)
                     i += 1
                 } else if Int(seg.end - seg.start) < detourTolerance,
-                          i + 1 < sorted.count, sorted[i + 1].groupingKey == run.groupingKey {
+                          i + 1 < sorted.count, sorted[i + 1].groupingKey == run.groupingKey,
+                          Int(sorted[i + 1].start - seg.end) < detourTolerance {
                     // Brief detour bounded by the same context on both sides → absorb both.
                     run.extend(with: seg)
                     run.extend(with: sorted[i + 1])

@@ -9,7 +9,7 @@ box and stamp the date when resolved.
 [permissions-setup.md](permissions-setup.md) · [guardrails.md](guardrails.md) ·
 [config.example.json](../config.example.json)
 
-**Status:** living checklist · **Last reviewed:** 2026-07-23
+**Status:** living checklist · **Last reviewed:** 2026-09-09
 
 ---
 
@@ -323,7 +323,20 @@ database rather than doc prose. Two findings are serious; both were verified by 
 
 ### D1 — The database stores third-party credentials captured from URLs and mirrored content
 
-- [ ] **Open — highest priority of anything in this file.**
+- [x] **Resolved** (date: 2026-09-09) — guardrail [G10](guardrails.md#g10--captured-and-mirrored-content-is-credential-scrubbed-before-the-insert).
+  All four steps below landed in one change: `URLScrubber` at the capture boundary (allowlist, not
+  denylist — query strings are dropped unless the key is in `capture.identity_query_keys`, and a
+  loopback URL whose query names a credential key such as `code` is never recorded); `Redactor` on
+  every ingested free-text column (page text, titles, Productive descriptions and notes, Slack
+  text); the `v3-credential-scrub` migration rewrote existing rows — every TEXT column in the
+  schema — with the same code; `CredentialScrubTests` drives credential shapes through the real
+  paths and `CredentialScrub.violations` scans every TEXT column with the redactor's own definition
+  of clean.
+  `make diagnose` prints that scan against the live DB as `credential_shapes`. Before the fix was
+  installed it read `activity_samples.url=64, window_title=3, page_snapshots.url=10, text=1,
+  pd_tasks.description=4, slack_messages.text=3` — more than the audit counted, because the scan
+  knows more shapes than `code=`. The number to check after the next install is **0**. Verify the
+  live DB by count, not by trusting this entry.
 - **Verified live, counts only (values deliberately not reproduced here):**
   `activity_samples` holds **35** rows whose `url` contains `code=`, **2** of them Google OAuth
   authorization codes (`code=4/0A…`), and **1** carrying `access_token=`/`id_token=`.
@@ -352,8 +365,23 @@ database rather than doc prose. Two findings are serious; both were verified by 
 
 ### D2 — 54% of all recorded "screen" time is the macOS lock screen
 
-- [ ] **Open.** Every observed-time and attribution-rate number in the product is computed against a
-  denominator that is more than half lock screen.
+- [x] **Resolved** (date: 2026-09-09). The away subsystem is wired: `CaptureCoordinator` holds one
+  away state fed by the idle reader (backdated to when input stopped), the lock screen / screen
+  saver being frontmost (`AwayApps` — never recorded as a sample), and the sleep / lock
+  notifications relayed by `PowerObserver`. Entering it closes the open sample at the boundary;
+  leaving it writes one `away_gaps` row. `SessionBuildJob` subtracts `away_gaps` from every slice
+  and the sessionizer treats a hole ≥ the detour tolerance as a hard boundary. The
+  `v3-loginwindow-away-gaps` migration converts every historical lock-screen sample into an
+  `away_gaps` row and deletes its sessions; `RollupBackfillJob` then re-rolls every day once.
+  A capture heartbeat (`capture_last_alive`) closes a sample left open by a crash at the last
+  known-alive time, and pausing/quitting closes it explicitly.
+  **Not recoverable:** 25 samples (147 h) of a real app running unattended with no lock screen in
+  them predate idle detection and cannot be told apart from work; they stay, are counted by the
+  migration report, and age out with retention. Rates computed on the re-baselined data are in
+  [MVP-HANDOFF.md](MVP-HANDOFF.md) §2. Live check: `SELECT COUNT(*) FROM away_gaps` must grow daily,
+  and `sessions` must contain no `app:com.apple.loginwindow`.
+- **Was:** every observed-time and attribution-rate number in the product was computed against a
+  denominator that was more than half lock screen.
 - **Verified live:** of 740 recorded `kind='screen'` session hours, **400.1 hours (54.1%)** carry
   `context_key = 'app:com.apple.loginwindow'` — the single largest "activity" in the database, ahead
   of every real application. `away_gaps` has **0 rows** after 44 days.
@@ -376,7 +404,7 @@ Full detail in the audit; these are the ones with user-visible consequences.
 
 | Phase | Gap |
 |---|---|
-| 0 | Launch-at-login is registered blind — `SMAppService.status` is never read, so a failed registration is silent. `make doctor` prints three `echo` lines, not diagnostics (the real CLI is `make diagnose`). |
+| 0 | Launch-at-login is registered blind — `SMAppService.status` is never read, so a failed registration is silent. `make doctor` prints three `echo` lines, not diagnostics (the real CLI is `make diagnose`). *2026-09-09: Doctor and `make diagnose` now carry a **Jobs** section (registry vs `job_runs` ledger) — the orphan detector §D2 lacked.* |
 | 1 | No Chrome-adapter tests against recorded AppleScript replies; every capture test injects a fake. |
 | 2 | Four mirrored columns are 100% NULL live: `pd_tasks.status`, `pd_companies.company_type`, `pd_companies.domain`, `pd_time_entries.project_id`. `productive_person_id` is never written back to `config.json`. |
 | 3 | **Google Calendar has never run** — 0 rows, no `sync_state` row, no credentials. The away prompt is orphaned (depends on D2). |

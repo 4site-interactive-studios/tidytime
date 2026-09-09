@@ -7,6 +7,10 @@ import GRDB
 ///   v1-capture  (Phase 1) — activity_samples, page_snapshots, sessions, away_gaps, sync_state
 ///   v1-productive (Phase 2), v1-meetings (Phase 3), v1-slack (Phase 4),
 ///   v1-understand (Phase 5), v1-ai (Phase 6)
+///   v2-context-switches, v2-page-snapshot-time-index
+///   v3-credential-scrub — data-only: rewrites rows, adds no schema
+///   v3-loginwindow-away-gaps — data-only: lock-screen samples → away_gaps
+///   v3-job-runs — job_runs (the orphan detector's ledger)
 public enum Migrations {
     public static func migrator() -> DatabaseMigrator {
         var m = DatabaseMigrator()
@@ -18,7 +22,48 @@ public enum Migrations {
         registerV1Understand(&m)
         registerV1AI(&m)
         registerV2ContextSwitches(&m)
+        registerV3CredentialScrub(&m)
+        registerV3LoginWindowAwayGaps(&m)
+        registerV3JobRuns(&m)
         return m
+    }
+
+    /// One row per job the product runs: last start/finish, outcome, counts. The registry in
+    /// `JobLedger.swift` is read against it so a job nobody calls shows as NEVER RAN in Doctor.
+    private static func registerV3JobRuns(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v3-job-runs") { db in
+            try db.create(table: "job_runs") { t in
+                t.column("name", .text).primaryKey()
+                t.column("last_started_at", .integer).notNull()
+                t.column("last_finished_at", .integer)
+                t.column("last_outcome", .text).notNull()
+                t.column("last_detail", .text)
+                t.column("run_count", .integer).notNull().defaults(to: 0)
+                t.column("fail_count", .integer).notNull().defaults(to: 0)
+            }
+        }
+    }
+
+    /// Lock-screen samples become `away_gaps` rows and their sessions are deleted (2026-09-08
+    /// audit: 54% of recorded screen time was `app:com.apple.loginwindow`). Data only. See
+    /// `AwayGapBackfill`; `RollupBackfillJob` re-rolls every day's rollup once afterwards.
+    private static func registerV3LoginWindowAwayGaps(_ m: inout DatabaseMigrator) {
+        // `.immediate`: these touch rows, not schema, so foreign keys can stay ON while they run —
+        // and GRDB's default (`.deferred`, FKs off then checked before commit) turns any orphan
+        // into a migration that fails on every launch. The deletes also remove children
+        // explicitly; this is the second guard.
+        m.registerMigration("v3-loginwindow-away-gaps", foreignKeyChecks: .immediate) { db in
+            try AwayGapBackfill.apply(db)
+        }
+    }
+
+    /// One-shot rewrite of credential material stored before G10 (2026-09-08 audit): query strings
+    /// and fragments stripped from stored URLs, loopback-redirect rows dropped, free-text columns
+    /// pattern-redacted. Same scrubber and redactor as the live ingest paths — see `CredentialScrub`.
+    private static func registerV3CredentialScrub(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v3-credential-scrub", foreignKeyChecks: .immediate) { db in
+            try CredentialScrub.apply(db)
+        }
     }
 
     private static func registerV1Core(_ m: inout DatabaseMigrator) {

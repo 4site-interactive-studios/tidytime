@@ -137,14 +137,17 @@ final class CaptureChurnGatingTests: XCTestCase {
         XCTAssertEqual(try db.tableRowCounts()["activity_samples"], 2)
     }
 
-    /// Raw URL is still what gets STORED (the ledger stays raw so the metric can be recomputed).
-    func testStoresRawURLNotNormalized() throws {
+    /// The stored URL is not *normalized* — scheme, case, trailing slash and port survive, so the
+    /// context-switch metric can be recomputed from the ledger under a different policy. Since G10
+    /// (2026-09-08) the query string does NOT survive: it is where credentials arrive, and the
+    /// metric never keyed on it anyway. "Raw" now means "raw path", and this test says so.
+    func testStoresRawPathNotNormalizedButNoQuery() throws {
         let db = try AppDatabase.inMemory()
-        let adapter = FakeBrowserAdapter(tab: BrowserTab(url: "https://claude.ai/chat/aaa?msg=1", title: "t"), pageText: "x")
+        let adapter = FakeBrowserAdapter(tab: BrowserTab(url: "HTTPS://Claude.ai:443/Chat/AAA/?msg=1", title: "t"), pageText: "x")
         let reader = MutableFrontmostReader(FrontmostContext(appBundleId: "com.google.Chrome", appName: "Chrome",
                                                              windowTitle: "t", isBrowser: true))
         _ = try makeCoordinator(db, adapter: adapter, reader: reader).poll()
-        XCTAssertEqual(try db.samples(from: 0, to: 10_000).first?.url, "https://claude.ai/chat/aaa?msg=1")
+        XCTAssertEqual(try db.samples(from: 0, to: 10_000).first?.url, "HTTPS://Claude.ai:443/Chat/AAA/")
     }
 }
 

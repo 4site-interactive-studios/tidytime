@@ -47,6 +47,11 @@ A key/value table, so new bookkeeping needs **no migration**. The keys `TidyStor
 | `schema_version` | migrator | Applied schema version. |
 | `last_run_build` | every launch | `BuildInfo.summary` of the build that last opened this database — `0.1.0 (8dda588, built 2026-07-27T12:53:16Z)`. |
 | `last_run_bundle_path` | every launch | Filesystem path of that bundle. |
+| `rollups_recomputed_for` | `RollupBackfillJob` | Present when every day's rollup reflects current history. A data migration that rewrites samples or sessions **deletes** it (`AwayGapBackfill.invalidateRollups`); the job re-rolls every day once while it is absent. |
+
+"Last known alive" for capture is **not** a metadata key: it is the `CaptureHeartbeat` row in
+`job_runs`, written every content tick, and read on the next start to close a sample a crash left
+open at the right time.
 
 The last two exist because a version string alone cannot tell a current install from a stale copy
 of the same version. On 2026-08-28 a stale build kept relaunching from `~/.Trash` via a leftover
@@ -68,7 +73,8 @@ CREATE TABLE activity_samples (
     window_title  TEXT,
     is_browser    INTEGER NOT NULL DEFAULT 0,
     browser       TEXT,                       -- 'chrome' in v1
-    url           TEXT,                        -- active tab URL when is_browser
+    url           TEXT,                        -- active tab URL when is_browser — SCRUBBED (G10):
+                                               -- no query/fragment/userinfo except identity_query_keys
     source        TEXT    NOT NULL,            -- 'switch' | 'heartbeat'
     created_at    INTEGER NOT NULL
 );
@@ -79,10 +85,10 @@ CREATE TABLE page_snapshots (
     id           INTEGER PRIMARY KEY,
     sample_id    INTEGER NOT NULL REFERENCES activity_samples(id) ON DELETE CASCADE,
     captured_at  INTEGER NOT NULL,
-    url          TEXT    NOT NULL,
+    url          TEXT    NOT NULL,             -- scrubbed like activity_samples.url (G10)
     title        TEXT,
-    content_hash TEXT    NOT NULL,             -- sha256 of text; skip re-store on match
-    text         TEXT    NOT NULL,             -- document.body.innerText, truncated ~4 KB
+    content_hash TEXT    NOT NULL,             -- sha256 of the REDACTED text; skip re-store on match
+    text         TEXT    NOT NULL,             -- document.body.innerText, redacted, truncated ~4 KB
     text_bytes   INTEGER NOT NULL
 );
 CREATE INDEX idx_snapshots_sample ON page_snapshots(sample_id);
@@ -459,9 +465,14 @@ Authoritative list — mirrors
 | 7 | `v1-ai` | 6 | `ai_calls`, `nudges` |
 | 8 | `v2-context-switches` | post-v1 | adds 3 context-switch columns to `daily_rollups` |
 | 9 | `v2-page-snapshot-time-index` | post-v1 | index on `page_snapshots(captured_at)` |
+| 10 | `v3-credential-scrub` | post-v1 | **data only** — strips query/fragment from stored URLs, drops loopback-redirect rows, pattern-redacts free-text columns (G10) |
+| 11 | `v3-loginwindow-away-gaps` | post-v1 | **data only** — lock-screen samples become `away_gaps` rows (`cause='lock'`) and their sessions are deleted; `RollupBackfillJob` re-rolls every day once afterwards |
+| 12 | `v3-job-runs` | post-v1 | `job_runs` — the orphan detector's ledger (see below) |
 
 Migrations 8–9 are **additive and safe on a populated database** (new columns are `NOT NULL` with
-defaults); the upgrade path is covered by `MigrationUpgradePathTests`.
+defaults); the upgrade path is covered by `MigrationUpgradePathTests`. Migrations 10–11 change no
+schema; they rewrite rows through `CredentialScrub` and `AwayGapBackfill`, the same code the live
+paths use, and are covered by `CredentialScrubTests` and `AwayCaptureTests`.
 
 ```swift
 var migrator = DatabaseMigrator()
@@ -480,6 +491,32 @@ Practical guidance:
   `pd_companies`). Order migrations so referenced tables exist first, or add the FK columns
   without the `REFERENCES` clause in Phase 1 and introduce the constraint when the target
   table lands. The DDL above shows the intended final shape.
+
+## Job ledger (`job_runs`, 2026-09-09)
+
+One row per job the product runs, written by the job itself on every run. `JobRegistry`
+(`TidyStore/JobLedger.swift`) lists every job the product *expects* to run with its cadence; the
+Doctor pane and `make diagnose` render the registry against this table, so a job that exists and
+is never called shows as **NEVER RAN** instead of as a table quietly sitting at zero rows —
+this repo's signature failure, found seven times by audit before this table existed.
+
+```sql
+CREATE TABLE job_runs (
+    name             TEXT    PRIMARY KEY,      -- registry name: SessionBuildJob, ProductiveSync, CaptureHeartbeat…
+    last_started_at  INTEGER NOT NULL,
+    last_finished_at INTEGER,
+    last_outcome     TEXT    NOT NULL,         -- 'ok' | 'failed' | 'skipped'
+    last_detail      TEXT,                     -- error text (redacted) or the skip reason
+    run_count        INTEGER NOT NULL DEFAULT 0,
+    fail_count       INTEGER NOT NULL DEFAULT 0
+);
+```
+
+`skipped` is an outcome, not an absence: an ingest source with no credential records that it was
+considered and why. Verdicts (`JobHealth`): `NEVER RAN` (no row), `failed`, `stale` (last ok run
+older than 3× the cadence — the timer stopped), `skipped`, `ok`. `JobLedgerTests` runs one pipeline
+pass and fails on any registered pipeline job without a row; a tracked name that is not registered
+fails the same suite.
 
 ## Retention (Phase 1 job, enforced ongoing — guardrail G9)
 

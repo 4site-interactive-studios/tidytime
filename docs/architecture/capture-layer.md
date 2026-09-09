@@ -190,6 +190,17 @@ on a short cadence (e.g. every few seconds or every N rows, whichever first) and
 `stop()`, sleep, and app termination — so bursty app-switching is a handful of INSERTs, not one
 per event. Never leave the open sample unflushed across a sleep transition.
 
+**What is stored of a URL (G10, 2026-09-09).** `activity_samples.url` and `page_snapshots.url`
+hold the URL **without query string, fragment, or userinfo**. `URLScrubber` (TidyCore) applies
+this in `CaptureCoordinator.poll()` before the URL is copied onto the context, and again in
+`SampleRecorder` before the insert. The only query keys that survive are those in
+`capture.identity_query_keys` — the same allowlist sessionization uses to decide which keys carry
+identity — minus a short set (`code`, `token`, `access_token`, …) that can never be allowlisted.
+A loopback host (`127.0.0.1`, `localhost`) whose query or fragment names a credential key (`code`,
+`token`, `state`, …) is an OAuth redirect, TidyTime's own included, and is not recorded at all; any
+other loopback URL is a local dev server and is recorded with its query stripped like every host. Window titles and page text are pattern-redacted by
+`Redactor` on the same path. See [../guardrails.md](../guardrails.md#g10--captured-and-mirrored-content-is-credential-scrubbed-before-the-insert).
+
 ## Chrome adapter → `page_snapshots`
 
 For the active tab, `ChromeAdapter` (behind `BrowserAdapter`) uses AppleScript over Apple
@@ -229,6 +240,16 @@ if killSwitches.chromePageText, let snap = try await chrome.pageText(maxBytes: c
 this pipeline (see [module-map.md](module-map.md#protocol-seams-the-extension-points)).
 
 ## Idle & away → `away_gaps`
+
+> **As built (2026-09-09).** The state machine below lives in `CaptureCoordinator` as one `away`
+> value: `poll()` reads `IdleReader` first (≥ `capture.idle_threshold_seconds` → away, backdated to
+> `now − idle`), then treats a frontmost `com.apple.loginwindow` / `com.apple.ScreenSaver.Engine`
+> as away (never a sample), and `PowerObserver` relays sleep/wake and lock/unlock into
+> `awayBegan` / `awayEnded`. Overlaps collapse to one gap: earliest start, specific cause over
+> `idle`, and an end notification only closes a gap of its own cause (a wake with the screen still
+> locked is not a return). `SessionBuildJob` subtracts `away_gaps` from slices, so sessions never
+> cover away time. **None of this was wired until 2026-09-09** — see open-items §D2 for what 44 days
+> of unwired code did to the data.
 
 **Idle detection** uses `CGEventSource` seconds-since-last-input, polled on the heartbeat tick
 (not a tight loop). Threshold defaults to **10 minutes** (`capture.idle_threshold_seconds` =

@@ -16,12 +16,14 @@ public struct SessionBuildJob: Sendable {
     }
 
     /// Build slices: each sample spans [started_at, ended_at ?? nextStart ?? now]; context key
-    /// derived from browser host or app bundle.
-    public func slices(from samples: [ActivitySample], now: Int64) -> [SampleSlice] {
+    /// derived from browser host or app bundle. Away time is removed twice over: samples whose app
+    /// is the lock screen are skipped (belt), and `awayGaps` are subtracted from every slice
+    /// (braces) — so no session can cover time the user was not there.
+    public func slices(from samples: [ActivitySample], now: Int64, awayGaps: [AwayGap] = []) -> [SampleSlice] {
         let sorted = samples.sorted { $0.startedAt < $1.startedAt }
         var out: [SampleSlice] = []
         for (idx, s) in sorted.enumerated() {
-            guard let id = s.id else { continue }
+            guard let id = s.id, !AwayApps.isAway(s.appBundleId) else { continue }
             let fallbackEnd = idx + 1 < sorted.count ? sorted[idx + 1].startedAt : now
             let end = s.endedAt ?? fallbackEnd
             let context = ContextKey.derive(isBrowser: s.isBrowser, url: s.url, appBundleId: s.appBundleId)
@@ -32,11 +34,11 @@ public struct SessionBuildJob: Sendable {
                 id: id, start: s.startedAt, end: max(s.startedAt, end),
                 contextKey: context, groupingKey: grouping, appBundleId: s.appBundleId, title: s.windowTitle))
         }
-        return out
+        return AwayClipper.subtract(awayGaps, from: out)
     }
 
-    public func drafts(from samples: [ActivitySample], now: Int64) -> [SessionDraft] {
-        sessionizer.sessions(from: slices(from: samples, now: now))
+    public func drafts(from samples: [ActivitySample], now: Int64, awayGaps: [AwayGap] = []) -> [SessionDraft] {
+        sessionizer.sessions(from: slices(from: samples, now: now, awayGaps: awayGaps))
     }
 
     /// Idempotent variant for the running app: delete this window's screen sessions, then rebuild.
@@ -51,7 +53,7 @@ public struct SessionBuildJob: Sendable {
     @discardableResult
     public func run(_ db: AppDatabase, from start: Int64, to end: Int64, now: Int64) throws -> Int {
         let samples = try db.samples(from: start, to: end)
-        let drafts = drafts(from: samples, now: now)
+        let drafts = drafts(from: samples, now: now, awayGaps: try db.awayGaps(from: start, to: end))
         let createdAt = Int64(clock.now.timeIntervalSince1970)
         for d in drafts {
             let session = Session(

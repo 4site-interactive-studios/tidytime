@@ -37,7 +37,9 @@ It **recommends; the human enters.** Full vision: [PLAN.md](PLAN.md).
 5. **Every cloud AI call is metered** into the `ai_calls` ledger (provider, model, tokens,
    cost, outcome) and bounded by budget caps. No un-ledgered, un-capped cloud call.
 6. **Tokens live in the macOS Keychain, never in files, logs, or the DB.** Config
-   (`config.json`) holds non-secret settings only.
+   (`config.json`) holds non-secret settings only. And **nobody else's credentials reach the DB
+   either** (G10): URLs are stored without query strings, and text from outside is redacted at
+   the insert. A new column holding external text is redacted or it is a bug.
 7. **Stable code signature.** Never ship an ad-hoc / changing signature — macOS ties TCC
    permission grants to the signature and silently revokes them on change. See
    [docs/build/signing-and-tcc.md](docs/build/signing-and-tcc.md).
