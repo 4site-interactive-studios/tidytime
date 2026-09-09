@@ -173,4 +173,6 @@ credential in the address bar.
 - [ ] No secret in config/DB/logs/fixtures; Keychain only.
 - [ ] Any new column that stores text from outside the app is redacted at the insert (G10), and
       `CredentialScrub.redactedColumns` lists it.
+- [ ] Any new scheduled job is in `JobRegistry` and its call site is wrapped in `db.track(...)`, so
+      Doctor shows it and `JobLedgerTests` fails the day it stops being called.
 - [ ] Signing unchanged (stable identity); `.gitignore` still covers secrets/DB.

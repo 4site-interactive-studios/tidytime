@@ -27,18 +27,22 @@ public struct DiagnosticsInput: Sendable, Equatable {
     public var recentLogLines: [String]
     /// Anything else worth surfacing (build config, kill-switch states…).
     public var extras: [String: String]
+    /// Every registered job with its ledger verdict — `NEVER RAN` is the line this bundle exists
+    /// to make visible. Job name → summary.
+    public var jobs: [String: String]
 
     public init(
         appVersion: String, osVersion: String, deviceModel: String, generatedAt: Date,
         build: BuildInfo = BuildInfo(), configSummary: [String: String] = [:],
         presentSecretKeys: [String] = [],
         permissions: [String: String] = [:], databaseSummary: [String: Int] = [:],
-        recentLogLines: [String] = [], extras: [String: String] = [:]
+        recentLogLines: [String] = [], extras: [String: String] = [:], jobs: [String: String] = [:]
     ) {
         self.appVersion = appVersion; self.osVersion = osVersion; self.deviceModel = deviceModel
         self.generatedAt = generatedAt; self.build = build; self.configSummary = configSummary
         self.presentSecretKeys = presentSecretKeys; self.permissions = permissions
         self.databaseSummary = databaseSummary; self.recentLogLines = recentLogLines; self.extras = extras
+        self.jobs = jobs
     }
 }
 
@@ -84,6 +88,7 @@ public enum DiagnosticsBundle {
             out += "\n"
         }
 
+        out += section("Jobs (registry vs ledger — NEVER RAN is the orphan signal)", dict: input.jobs)
         out += section("Extras", dict: input.extras)
 
         out += "## Recent logs (\(input.recentLogLines.count) lines)\n```\n"

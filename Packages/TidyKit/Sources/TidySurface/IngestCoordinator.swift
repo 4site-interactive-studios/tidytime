@@ -98,11 +98,24 @@ public struct IngestCoordinator: Sendable {
 
     /// Run every ready source once. Never throws — a failing source is logged and recorded in
     /// `sync_state.last_error`, so one broken integration can't stop the others.
+    /// The `job_runs` name for each source — what Doctor's Jobs section shows.
+    public static func jobName(_ source: Source) -> String {
+        switch source {
+        case .productive: return "ProductiveSync"
+        case .fathom: return "FathomSync"
+        case .slack: return "SlackSync"
+        case .googleCalendar: return "CalendarSync"
+        }
+    }
+
     public func runAll() async {
         for source in Source.allCases {
             let r = readiness(source)
             guard r.canRun else {
                 logger?.debug("ingest skipped", ["source": source.rawValue, "reason": r.explanation])
+                // Considered and not run is a ledger entry too — "skipped: no credential" must
+                // never be confused with "nobody calls this".
+                db.recordJobSkipped(Self.jobName(source), reason: r.explanation, clock: clock)
                 continue
             }
             // Snapshot secret values BEFORE running: a failure path may DELETE a secret (e.g. a
@@ -111,7 +124,7 @@ public struct IngestCoordinator: Sendable {
             // LastErrorRedactionTests).
             let known = SecretKey.all.compactMap { (try? secrets.get($0)) ?? nil }
             do {
-                try await run(source)
+                try await db.track(Self.jobName(source), clock: clock) { try await run(source) }
                 logger?.info("ingest ok", ["source": source.rawValue])
             } catch {
                 // last_error surfaces in Doctor and the diagnostics bundle, and provider error

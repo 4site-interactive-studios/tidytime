@@ -92,8 +92,12 @@ never invoked cannot fail. Six were found and wired this week; these remain.
 | Answer-half of the learning loop (`AwayResolving`, `NudgeOutcomeRecording`) | those write paths never run |
 | All of Phase 6 — `AIRouter`, `NoteDrafter`, the three providers, rungs 3–5 | `ai_calls` is 0 rows. **This is a Phase 5 acceptance criterion, not a defect.** |
 
-`GuardrailEnforcementTests.testPipelineJobsHaveProductionCallSites` now pins the seven jobs that *are*
-wired (plus the live away wiring), so deleting a call site is a test failure. It does not yet detect a *new* orphan. A Doctor
+`GuardrailEnforcementTests.testPipelineJobsHaveProductionCallSites` pins the seven jobs that *are*
+wired (plus the live away wiring), so deleting a call site is a test failure. **Since 2026-09-09 a
+new orphan is detected too:** every job writes a `job_runs` row when it runs, `JobRegistry` lists
+every job the product expects, and Doctor's *Jobs* section (and `make diagnose`) shows any
+registered job with no row as **NEVER RAN**. `JobLedgerTests` runs one pipeline pass and fails on
+a registered pipeline job that left no row. A Doctor
 panel listing every pipeline job with its last-run time would — see §7.
 
 ## 4. Getting it running
@@ -181,9 +185,10 @@ The three things most likely to be wrong in a way the tests cannot see:
 
 Not blockers, but do not rediscover them:
 
-- **No orphan detection.** Nothing reports "job defined, never invoked." Five separate bugs this
-  week were instances of it. A Doctor panel listing pipeline jobs with last-run times would surface
-  the next one in seconds instead of weeks.
+- ~~**No orphan detection.**~~ **Fixed 2026-09-09.** Doctor's *Jobs* section lists every registered
+  job with its last run, outcome and cadence; a job nobody calls reads NEVER RAN in red, a job whose
+  timer stopped reads stale. Seven orphans were found by audit before this existed. The remaining
+  gap: a *new* component that is not registered as a job is still invisible — register it.
 - **Confidence is calibrated by argument, not by data.** The numbers now discriminate (five distinct
   values across ten cards, where nine of fourteen used to read 0.82), but no one has ever checked
   whether an 0.80 card is right more often than an 0.76 one. Once `decisions` has rows, that becomes

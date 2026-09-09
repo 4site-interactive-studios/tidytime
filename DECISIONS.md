@@ -2388,3 +2388,40 @@ corrected 89%; the persisted rollups for the same days were not.
 manufactured a boundary the data does not contain and made the numbers look better than what is
 known. The context-switch analyzer already ignores such spans; observed time should say what was
 recorded and the doc should say what is doubtful.
+
+## The orphan detector: a job ledger every job writes to (2026-09-09)
+
+Seven components in this repo were found written, tested and never called — six pipeline jobs in
+one week, then the whole away subsystem, which cost 44 days of data. The pinned-call-site guardrail
+test stops a *known* call site from disappearing; it cannot see a *new* orphan, and the MVP handoff
+named "a Doctor panel listing pipeline jobs with last-run times" as the fix. This is that panel.
+
+**The job records itself.** `job_runs` holds one row per job: last start, finish, outcome, detail,
+counts. `AppDatabase.track(name) { … }` wraps each call site in `runPipelineOnce`, each ingest
+engine in `IngestCoordinator.runAll`, and the capture content tick writes a `CaptureHeartbeat` row
+every 20 s. `JobRegistry` lists every job the product expects with its cadence, and `JobHealth`
+reads the registry against the ledger: **NEVER RAN**, `failed`, `stale` (last ok run older than
+3× cadence — the timer stopped, the live form of never-called), `skipped`, `ok`. Doctor's *Jobs*
+section and `make diagnose` render it.
+
+**`skipped` is an outcome.** An ingest source with no credential records that it was considered and
+why. Without that, four sources would read NEVER RAN on every fresh install and the signal would be
+noise by day two — which is how guardrails get deleted.
+
+**Two tests close the loop from both sides.** `JobLedgerTests` runs one real pipeline pass on an
+in-memory environment and fails on any registered pipeline job without a row: register a job
+without wiring it and the suite is red. The structural half greps the three wiring files for
+`track("…")` / `recordJobRun("…")` names and fails on one that is not registered: wire a job without
+registering it and Doctor would never list it, so that is red too. Adding a job now means doing both,
+and doing only one is caught.
+
+**What it still cannot see:** a component that is neither registered nor tracked — a new struct
+with a `run()` and no caller. The registry is the list of things the product *promises* to run;
+the discipline is that a new scheduled job goes on the list the day it is written. That is a rule
+in the guardrails checklist, not a mechanism, and it is stated as such.
+
+**Found while verifying:** `make diagnose` blocked for ten minutes after the rebuild. The sampled
+stack was `KeychainSecretStore.get → SecItemCopyMatching` — the CLI reads every secret to build its
+redaction list, and a freshly built binary has a new signature, so macOS shows a Keychain prompt
+that a headless invocation never sees. Pre-existing (the CLI always did this); worth knowing before
+trusting a "hung" `make diagnose`.

@@ -462,6 +462,7 @@ Authoritative list — mirrors
 | 9 | `v2-page-snapshot-time-index` | post-v1 | index on `page_snapshots(captured_at)` |
 | 10 | `v3-credential-scrub` | post-v1 | **data only** — strips query/fragment from stored URLs, drops loopback-redirect rows, pattern-redacts free-text columns (G10) |
 | 11 | `v3-loginwindow-away-gaps` | post-v1 | **data only** — lock-screen samples become `away_gaps` rows (`cause='lock'`) and their sessions are deleted; `RollupBackfillJob` re-rolls every day once afterwards |
+| 12 | `v3-job-runs` | post-v1 | `job_runs` — the orphan detector's ledger (see below) |
 
 Migrations 8–9 are **additive and safe on a populated database** (new columns are `NOT NULL` with
 defaults); the upgrade path is covered by `MigrationUpgradePathTests`. Migrations 10–11 change no
@@ -485,6 +486,32 @@ Practical guidance:
   `pd_companies`). Order migrations so referenced tables exist first, or add the FK columns
   without the `REFERENCES` clause in Phase 1 and introduce the constraint when the target
   table lands. The DDL above shows the intended final shape.
+
+## Job ledger (`job_runs`, 2026-09-09)
+
+One row per job the product runs, written by the job itself on every run. `JobRegistry`
+(`TidyStore/JobLedger.swift`) lists every job the product *expects* to run with its cadence; the
+Doctor pane and `make diagnose` render the registry against this table, so a job that exists and
+is never called shows as **NEVER RAN** instead of as a table quietly sitting at zero rows —
+this repo's signature failure, found seven times by audit before this table existed.
+
+```sql
+CREATE TABLE job_runs (
+    name             TEXT    PRIMARY KEY,      -- registry name: SessionBuildJob, ProductiveSync, CaptureHeartbeat…
+    last_started_at  INTEGER NOT NULL,
+    last_finished_at INTEGER,
+    last_outcome     TEXT    NOT NULL,         -- 'ok' | 'failed' | 'skipped'
+    last_detail      TEXT,                     -- error text (redacted) or the skip reason
+    run_count        INTEGER NOT NULL DEFAULT 0,
+    fail_count       INTEGER NOT NULL DEFAULT 0
+);
+```
+
+`skipped` is an outcome, not an absence: an ingest source with no credential records that it was
+considered and why. Verdicts (`JobHealth`): `NEVER RAN` (no row), `failed`, `stale` (last ok run
+older than 3× the cadence — the timer stopped), `skipped`, `ok`. `JobLedgerTests` runs one pipeline
+pass and fails on any registered pipeline job without a row; a tracked name that is not registered
+fails the same suite.
 
 ## Retention (Phase 1 job, enforced ongoing — guardrail G9)
 

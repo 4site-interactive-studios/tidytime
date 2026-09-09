@@ -11,6 +11,7 @@ public struct DoctorView: View {
     @ObservedObject var env: AppEnvironment
     @State private var permissions: [String: String] = [:]
     @State private var counts: [String: Int] = [:]
+    @State private var jobs: [JobStatus] = []
     @State private var lastErrors: [String: String] = [:]
     @State private var copied = false
     /// Which "How to fix" groups are open, keyed by row name — survives the 3s reload timer.
@@ -93,6 +94,21 @@ public struct DoctorView: View {
                         }
                     }
                     Text("A source with zero rows is idle for the reason shown — not silently broken.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                section("Jobs") {
+                    ForEach(jobs, id: \.job.name) { status in
+                        HStack {
+                            Text("\(status.job.group)/\(status.job.name)").font(.system(size: 12, design: .monospaced))
+                            Spacer()
+                            Text(status.summary)
+                                .font(.system(size: 12))
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(jobColor(status.verdict))
+                        }
+                    }
+                    Text("Every job the app expects to run, read against the job_runs ledger. NEVER RAN is a bug: the code exists and nothing calls it.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -190,6 +206,7 @@ public struct DoctorView: View {
     private func reload() {
         permissions = PermissionInspector().statuses()
         counts = (try? env.db.tableRowCounts()) ?? [:]
+        jobs = env.db.jobStatuses()
         var errors: [String: String] = [:]
         for source in IngestCoordinator.Source.allCases {
             if let error = ((try? env.db.syncState(source.rawValue)) ?? nil)?.lastError, !error.isEmpty {
@@ -205,6 +222,15 @@ public struct DoctorView: View {
         case .broken: return .red
         case .neutral: return .secondary
         case .attention: return .orange
+        }
+    }
+
+    private func jobColor(_ verdict: JobStatus.Verdict) -> Color {
+        switch verdict {
+        case .ok: return .green
+        case .neverRan, .failed: return .red
+        case .stale: return .orange
+        case .skipped: return .secondary
         }
     }
 

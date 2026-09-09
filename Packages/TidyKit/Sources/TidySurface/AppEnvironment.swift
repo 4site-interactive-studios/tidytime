@@ -286,7 +286,12 @@ public final class AppEnvironment: ObservableObject {
                 sessionizer: Sessionizer(detourTolerance: config.sessionization.detourToleranceSeconds,
                                          minSessionSeconds: config.sessionization.minSessionSeconds),
                 separateChatsByPath: config.capture.separateChatsByPath)
-            try builder.rebuild(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            // Every step records itself in `job_runs` (see JobLedger.swift): the Doctor pane reads
+            // the registry against that ledger, so a step that stops being called shows as
+            // NEVER RAN instead of as a table quietly sitting at zero rows.
+            try db.track("SessionBuildJob") {
+                try builder.rebuild(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            }
             // Vocabulary before classification: rung 1 matches against `entity_signals`, and until
             // this call existed that table had 0 rows — so rung 1 could never fire and only rung 2
             // lexical matching ever produced an attribution (15 of 3,890 sessions). Idempotent and
@@ -294,8 +299,10 @@ public final class AppEnvironment: ObservableObject {
             // `try?`: the vocabulary is best-effort. A throw here must not skip DayClassifier,
             // the recap refresh, rollups and retention for the whole pass — the same reasoning
             // DayClassifier already applies to its own signal write.
-            _ = try? EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970))
-            _ = try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            _ = try? db.track("EntityBootstrap") { try EntityBootstrap().run(db, now: Int64(Date().timeIntervalSince1970)) }
+            _ = try db.track("DayClassifier") {
+                try DayClassifier().run(db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            }
             // Turn classified sessions into time-entry suggestions. This is the product's actual
             // output, and until this call site existed `SuggestionEngine` had six callers, all
             // tests — so `suggestions` sat at 0 rows for the app's entire life while the recap
@@ -316,24 +323,37 @@ public final class AppEnvironment: ObservableObject {
                 selfPersonId: (try? db.selfPerson())?.id,
                 organization: config.organization,
                 deepLinkPattern: config.productive.taskDeepLinkPattern)
-            _ = try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
+            _ = try db.track("SuggestionEngine") {
+                try suggestions.generate(day: Self.dayString(Date(), timeZone), from: from, to: to)
+            }
 
             // Unresolved recurring hosts become ONE ask-once question each. Without this the recap's
             // Questions section is permanently empty and the user has no way to teach the app about
             // a domain it cannot place — the manual repair channel was closed alongside the
             // automatic one.
-            _ = try? ResolutionQuestionGenerator().generate(
-                db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            _ = try? db.track("ResolutionQuestionGenerator") {
+                try ResolutionQuestionGenerator().generate(
+                    db, from: from, to: to, now: Int64(Date().timeIntervalSince1970))
+            }
 
-            try refreshToday()
-            try writeRollups()
+            try db.track("RecapRefresh") { try refreshToday() }
+            try db.track("DailyRollup") { try writeRollups() }
             // Once per data migration that rewrites history: re-roll EVERY day, not just today and
             // yesterday, so a frozen past day cannot keep reporting lock-screen hours as observed.
-            _ = try? RollupBackfillJob(
-                db: db, assembler: RecapAssembler(db: db, config: config, selfPersonId: (try? db.selfPerson())?.id),
-                timeZone: timeZone).runIfNeeded()
-            try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
-            writeDiagnosticsSnapshot()
+            _ = try? db.track("RollupBackfillJob") {
+                try RollupBackfillJob(
+                    db: db, assembler: RecapAssembler(db: db, config: config, selfPersonId: (try? db.selfPerson())?.id),
+                    timeZone: timeZone).runIfNeeded()
+            }
+            try db.track("RetentionJob") {
+                try RetentionJob().purge(db, retentionDays: config.retentionDays, now: Date())
+            }
+            let snapshotStarted = Int64(Date().timeIntervalSince1970)
+            let snapshotWritten = writeDiagnosticsSnapshot() != nil
+            try? db.recordJobRun("DiagnosticsSnapshot", startedAt: snapshotStarted,
+                                 finishedAt: Int64(Date().timeIntervalSince1970),
+                                 outcome: snapshotWritten ? .ok : .failed,
+                                 detail: snapshotWritten ? nil : "snapshot file not written (see log)")
         } catch {
             logger.error("pipeline pass failed", ["error": "\(error)"])
             status = .attention("pipeline error")

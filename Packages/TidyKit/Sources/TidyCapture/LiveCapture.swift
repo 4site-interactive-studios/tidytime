@@ -276,7 +276,10 @@ public final class LiveCaptureController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 try? self.coordinator.captureContent()
-                try? self.db.setMetadata(MetadataKey.captureLastAlive, String(Int64(Date().timeIntervalSince1970)))
+                let now = Int64(Date().timeIntervalSince1970)
+                try? self.db.setMetadata(MetadataKey.captureLastAlive, String(now))
+                try? self.db.recordJobRun("CaptureHeartbeat", startedAt: now, finishedAt: now, outcome: .ok,
+                                          detail: self.coordinator.isAway ? "away" : nil)
             }
         }
         try? coordinator.poll()

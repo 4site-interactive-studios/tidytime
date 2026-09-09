@@ -402,7 +402,7 @@ Full detail in the audit; these are the ones with user-visible consequences.
 
 | Phase | Gap |
 |---|---|
-| 0 | Launch-at-login is registered blind — `SMAppService.status` is never read, so a failed registration is silent. `make doctor` prints three `echo` lines, not diagnostics (the real CLI is `make diagnose`). |
+| 0 | Launch-at-login is registered blind — `SMAppService.status` is never read, so a failed registration is silent. `make doctor` prints three `echo` lines, not diagnostics (the real CLI is `make diagnose`). *2026-09-09: Doctor and `make diagnose` now carry a **Jobs** section (registry vs `job_runs` ledger) — the orphan detector §D2 lacked.* |
 | 1 | No Chrome-adapter tests against recorded AppleScript replies; every capture test injects a fake. |
 | 2 | Four mirrored columns are 100% NULL live: `pd_tasks.status`, `pd_companies.company_type`, `pd_companies.domain`, `pd_time_entries.project_id`. `productive_person_id` is never written back to `config.json`. |
 | 3 | **Google Calendar has never run** — 0 rows, no `sync_state` row, no credentials. The away prompt is orphaned (depends on D2). |

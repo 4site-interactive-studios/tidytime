@@ -10,6 +10,7 @@ import GRDB
 ///   v2-context-switches, v2-page-snapshot-time-index
 ///   v3-credential-scrub — data-only: rewrites rows, adds no schema
 ///   v3-loginwindow-away-gaps — data-only: lock-screen samples → away_gaps
+///   v3-job-runs — job_runs (the orphan detector's ledger)
 public enum Migrations {
     public static func migrator() -> DatabaseMigrator {
         var m = DatabaseMigrator()
@@ -23,7 +24,24 @@ public enum Migrations {
         registerV2ContextSwitches(&m)
         registerV3CredentialScrub(&m)
         registerV3LoginWindowAwayGaps(&m)
+        registerV3JobRuns(&m)
         return m
+    }
+
+    /// One row per job the product runs: last start/finish, outcome, counts. The registry in
+    /// `JobLedger.swift` is read against it so a job nobody calls shows as NEVER RAN in Doctor.
+    private static func registerV3JobRuns(_ m: inout DatabaseMigrator) {
+        m.registerMigration("v3-job-runs") { db in
+            try db.create(table: "job_runs") { t in
+                t.column("name", .text).primaryKey()
+                t.column("last_started_at", .integer).notNull()
+                t.column("last_finished_at", .integer)
+                t.column("last_outcome", .text).notNull()
+                t.column("last_detail", .text)
+                t.column("run_count", .integer).notNull().defaults(to: 0)
+                t.column("fail_count", .integer).notNull().defaults(to: 0)
+            }
+        }
     }
 
     /// Lock-screen samples become `away_gaps` rows and their sessions are deleted (2026-09-08
